@@ -49,6 +49,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--llm-model", "-m",
                         help="Model name (default: first model the local "
                              "server reports / claude-opus-4-8 for Claude)")
+    parser.add_argument("--web", "-w", action="store_true",
+                        help="Serve a browser chat UI on localhost instead "
+                             "of the terminal interface")
+    parser.add_argument("--port", "-p", type=int, default=8765,
+                        help="Port for the web UI (default: 8765)")
+    parser.add_argument("--no-browser", action="store_true",
+                        help="With --web, don't auto-open the browser")
     args = parser.parse_args(argv)
 
     if not args.guideline or not Path(args.guideline).exists():
@@ -65,6 +72,12 @@ def main(argv: list[str] | None = None) -> int:
 
     guideline_text = load_guideline(args.guideline)
     coach = Coach(guideline_text, backend)
+
+    if args.web:
+        from .webui import WebUI
+        WebUI(coach, backend, args.guideline, args.template,
+              args.out_dir).serve(args.port, open_browser=not args.no_browser)
+        return 0
 
     banner = BANNER.format(version=__version__, guideline=args.guideline,
                            backend=backend.name, model=backend.model)

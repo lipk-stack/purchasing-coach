@@ -14,12 +14,15 @@ It is designed for locked-down corporate machines: it runs against a **local
 LLM** served by **LM Studio** or **Ollama** (auto-detected, no cloud account
 or API key needed), and ships as a **single-file `.pyz`** that needs nothing
 installed beyond a Python interpreter. The Claude API is supported as an
-optional backend.
+optional backend. Use it in the terminal, or pass `--web` for a local
+browser chat UI served from the same file.
 
 The source documents (`XXEON_IT_Procurement_Guideline.docx` and
 `TENDER_TEMPLATE.xlsx`) live in the Google Drive **"Purchasing Guideline"**
-folder. The copies under `samples/` are local reconstructions used for
-development and tests — regenerate them with `python scripts/make_samples.py`.
+folder. `samples/TENDER_TEMPLATE.xlsx` is the genuine Drive template
+(recovered from the original binary; only standard boilerplate parts were
+rebuilt). The sample guideline docx is a reconstruction with the same text —
+regenerate it with `python scripts/make_samples.py`.
 
 ## Portable use (no install rights needed)
 
@@ -35,6 +38,18 @@ development and tests — regenerate them with `python scripts/make_samples.py`.
 ```
 python purchasing-coach.pyz --guideline Guideline.docx --template TENDER_TEMPLATE.xlsx
 ```
+
+4. Prefer a browser over the terminal? Add `--web`:
+
+```
+python purchasing-coach.pyz --guideline Guideline.docx --template TENDER_TEMPLATE.xlsx --web
+```
+
+This serves a chat page on `http://127.0.0.1:8765/` (localhost only) and
+opens it in your default browser. The "Tender checklist" button runs the
+same interview as `/tender` in the terminal and ends with a download link
+for the generated workbook. `--port` changes the port, `--no-browser`
+skips the auto-open.
 
 The backend is auto-detected (LM Studio → Ollama → Claude API if an
 `ANTHROPIC_API_KEY` is set). Pin it explicitly with `--backend lmstudio`,
@@ -93,4 +108,5 @@ Project layout:
 - `coach/tender.py` — interview flow
 - `coach/excel.py` — template-aware checklist writer
 - `coach/cli.py` — interactive CLI
+- `coach/webui.py` — local browser UI (stdlib `http.server`)
 - `NOTES.md` — follow-ups for the next iteration

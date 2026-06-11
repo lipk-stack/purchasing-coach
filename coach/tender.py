@@ -32,7 +32,7 @@ def run_tender_flow(coach: Coach, template_path: str | Path | None,
     say("\nBuilding the compliance checklist from the guideline...")
     checklist = coach.build_checklist(item, answers)
 
-    out_path = Path(out_dir) / _output_name(checklist.tender_info.purchase_item)
+    out_path = Path(out_dir) / output_name(checklist.tender_info.purchase_item)
     write_checklist(checklist.tender_info, checklist.requirements,
                     out_path, template_path)
     say(f"\nDone. {len(checklist.requirements)} requirements written to: {out_path}")
@@ -42,6 +42,6 @@ def run_tender_flow(coach: Coach, template_path: str | Path | None,
     return out_path
 
 
-def _output_name(item: str) -> str:
+def output_name(item: str) -> str:
     slug = re.sub(r"[^A-Za-z0-9]+", "_", item).strip("_")[:40] or "tender"
     return f"TENDER_CHECKLIST_{slug}_{date.today():%Y%m%d}.xlsx"
