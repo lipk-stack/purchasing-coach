@@ -1,15 +1,9 @@
-"""Thin wrapper around the Anthropic SDK for the purchasing coach.
-
-All LLM calls go through this module so the rest of the app can be tested
-with a fake client.
-"""
+"""The Coach: prompts + parsing on top of a pluggable LLM backend."""
 
 from collections.abc import Iterator
 
-import anthropic
-
-from . import DEFAULT_MODEL
-from .models import InterviewPlan, TenderChecklist
+from .models import (CHECKLIST_SCHEMA, INTERVIEW_SCHEMA, InterviewPlan,
+                     TenderChecklist)
 
 SYSTEM_TEMPLATE = """\
 You are Purchasing Coach, an assistant for procurement officers. You answer
@@ -29,28 +23,14 @@ Rules:
 
 
 class Coach:
-    def __init__(self, guideline_text: str, model: str = DEFAULT_MODEL,
-                 client: anthropic.Anthropic | None = None):
-        self.client = client or anthropic.Anthropic()
-        self.model = model
-        self.system = [{
-            "type": "text",
-            "text": SYSTEM_TEMPLATE.format(guideline=guideline_text),
-            # The guideline is large and identical across turns — cache it.
-            "cache_control": {"type": "ephemeral"},
-        }]
+    def __init__(self, guideline_text: str, backend):
+        self.backend = backend
+        self.system = SYSTEM_TEMPLATE.format(guideline=guideline_text)
 
     # ---- chat -----------------------------------------------------------
     def answer(self, history: list[dict]) -> Iterator[str]:
         """Stream the assistant's reply for the given message history."""
-        with self.client.messages.stream(
-            model=self.model,
-            max_tokens=4096,
-            thinking={"type": "adaptive"},
-            system=self.system,
-            messages=history,
-        ) as stream:
-            yield from stream.text_stream
+        yield from self.backend.stream_chat(self.system, history)
 
     # ---- tender interview -------------------------------------------------
     def plan_interview(self, item_description: str) -> InterviewPlan:
@@ -69,15 +49,9 @@ class Coach:
             "Ask only what is relevant to this item. Keep it to at most 12 "
             "questions, each answerable in a short free-text reply."
         )
-        response = self.client.messages.parse(
-            model=self.model,
-            max_tokens=4096,
-            thinking={"type": "adaptive"},
-            system=self.system,
-            messages=[{"role": "user", "content": prompt}],
-            output_format=InterviewPlan,
-        )
-        return response.parsed_output
+        data = self.backend.complete_json(self.system, prompt,
+                                          INTERVIEW_SCHEMA, "interview_plan")
+        return InterviewPlan.from_dict(data)
 
     def build_checklist(self, item_description: str,
                         answers: list[tuple[str, str]]) -> TenderChecklist:
@@ -101,12 +75,7 @@ class Coach:
             "must/shall/mandatory or 'O' when it says should/recommended.\n"
             "Order rows by clause number."
         )
-        response = self.client.messages.parse(
-            model=self.model,
-            max_tokens=16000,
-            thinking={"type": "adaptive"},
-            system=self.system,
-            messages=[{"role": "user", "content": prompt}],
-            output_format=TenderChecklist,
-        )
-        return response.parsed_output
+        data = self.backend.complete_json(self.system, prompt,
+                                          CHECKLIST_SCHEMA, "tender_checklist",
+                                          max_tokens=16000)
+        return TenderChecklist.from_dict(data)

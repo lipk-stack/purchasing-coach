@@ -3,3 +3,4 @@ __pycache__/
 .pytest_cache/
 TENDER_CHECKLIST_*.xlsx
 .venv/
+build/

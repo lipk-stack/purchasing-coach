@@ -1,18 +1,19 @@
 """Command-line entry point for the purchasing coach chatbot."""
 
 import argparse
-import os
 import sys
 from pathlib import Path
 
-from . import DEFAULT_MODEL, __version__
+from . import __version__
+from .backends import BackendError, detect_backend
 from .documents import load_guideline
 from .llm import Coach
 from .tender import run_tender_flow
 
 BANNER = """\
 Purchasing Coach v{version} — chat with your purchasing guideline.
-Loaded guideline: {guideline}
+Guideline: {guideline}
+LLM:       {backend} ({model})
 Commands:
   /tender   generate a tender checklist (Excel) for an item you want to buy
   /help     show this help
@@ -24,7 +25,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="purchasing-coach",
         description="Chat with a purchasing guideline and generate tender "
-                    "checklists from an Excel template.",
+                    "checklists from an Excel template. Works with a local "
+                    "LLM via LM Studio or Ollama (no cloud account needed) "
+                    "or with the Claude API.",
     )
     parser.add_argument("--guideline", "-g",
                         default=_default("XXEON_IT_Procurement_Guideline.docx",
@@ -36,23 +39,36 @@ def main(argv: list[str] | None = None) -> int:
                              "a built-in layout is used if omitted")
     parser.add_argument("--out-dir", "-o", default=".",
                         help="Directory for generated checklists")
-    parser.add_argument("--model", default=DEFAULT_MODEL)
+    parser.add_argument("--backend", "-b", default="auto",
+                        choices=["auto", "lmstudio", "ollama", "claude"],
+                        help="LLM backend (default: auto-detect LM Studio, "
+                             "then Ollama, then Claude API)")
+    parser.add_argument("--base-url",
+                        help="URL of any OpenAI-compatible server, e.g. "
+                             "http://localhost:1234/v1")
+    parser.add_argument("--llm-model", "-m",
+                        help="Model name (default: first model the local "
+                             "server reports / claude-opus-4-8 for Claude)")
     args = parser.parse_args(argv)
-
-    if not os.environ.get("ANTHROPIC_API_KEY") and not os.environ.get("ANTHROPIC_AUTH_TOKEN"):
-        print("Note: no ANTHROPIC_API_KEY found in the environment. "
-              "Set it before chatting:\n  export ANTHROPIC_API_KEY=sk-ant-...",
-              file=sys.stderr)
 
     if not args.guideline or not Path(args.guideline).exists():
         print(f"Guideline document not found: {args.guideline!r}\n"
-              "Pass one with --guideline /path/to/guideline.docx", file=sys.stderr)
+              "Pass one with --guideline /path/to/guideline.docx",
+              file=sys.stderr)
+        return 2
+
+    try:
+        backend = detect_backend(args.backend, args.base_url, args.llm_model)
+    except BackendError as exc:
+        print(f"LLM setup failed: {exc}", file=sys.stderr)
         return 2
 
     guideline_text = load_guideline(args.guideline)
-    coach = Coach(guideline_text, model=args.model)
+    coach = Coach(guideline_text, backend)
 
-    print(BANNER.format(version=__version__, guideline=args.guideline))
+    banner = BANNER.format(version=__version__, guideline=args.guideline,
+                           backend=backend.name, model=backend.model)
+    print(banner)
     history: list[dict] = []
     while True:
         try:
@@ -65,14 +81,14 @@ def main(argv: list[str] | None = None) -> int:
         if user in ("/quit", "/exit", "/q"):
             return 0
         if user == "/help":
-            print(BANNER.format(version=__version__, guideline=args.guideline))
+            print(banner)
             continue
         if user == "/tender":
             try:
                 run_tender_flow(coach, args.template, args.out_dir)
             except KeyboardInterrupt:
                 print("\nTender flow cancelled.")
-            except Exception as exc:  # surface API errors without dying
+            except Exception as exc:  # surface LLM errors without dying
                 print(f"Tender generation failed: {exc}", file=sys.stderr)
             continue
 
@@ -92,12 +108,19 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _default(*names: str) -> str | None:
-    """Find a bundled sample file next to the package, if present."""
-    samples = Path(__file__).resolve().parent.parent / "samples"
-    for name in names:
-        candidate = samples / name
-        if candidate.exists():
-            return str(candidate)
+    """Find a bundled sample file next to the package, if present.
+
+    Inside a zipapp there is no real filesystem next to the package, so this
+    simply returns None and the user passes --guideline/--template.
+    """
+    try:
+        samples = Path(__file__).resolve().parent.parent / "samples"
+        for name in names:
+            candidate = samples / name
+            if candidate.exists():
+                return str(candidate)
+    except OSError:
+        pass
     return None
 
 

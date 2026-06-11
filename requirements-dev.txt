@@ -1,0 +1,4 @@
+-r requirements.txt
+pytest>=8
+python-docx>=1.1   # used by scripts/make_samples.py to rebuild the sample docx
+anthropic>=0.50

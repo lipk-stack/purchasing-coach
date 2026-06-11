@@ -1,52 +1,48 @@
-"""End-to-end tender flow with a fake Anthropic client (no network)."""
-
-from contextlib import contextmanager
-from types import SimpleNamespace
+"""End-to-end tender flow with a fake LLM backend (no network)."""
 
 from openpyxl import load_workbook
 
 from coach.llm import Coach
-from coach.models import (InterviewPlan, InterviewQuestion, RequirementRow,
-                          TenderChecklist, TenderInfo)
 from coach.tender import run_tender_flow
 
-PLAN = InterviewPlan(questions=[
-    InterviewQuestion(key="deadline", question="When is the submission deadline?"),
-    InterviewQuestion(key="dept", question="Which department is requesting this?"),
-])
+PLAN = {
+    "questions": [
+        {"key": "deadline", "question": "When is the submission deadline?"},
+        {"key": "dept", "question": "Which department is requesting this?"},
+    ]
+}
 
-CHECKLIST = TenderChecklist(
-    tender_info=TenderInfo(
-        issue_date="2026-06-10", submission_deadline="2026-07-01",
-        purchase_item="Firewall appliances", issued_by="IT Procurement",
-        requesting_dept="Network", tender_reference="XXEON-IT-2026-001",
-        procurement_type="Tender", estimated_value="MYR 400,000",
-        purchase_category="Hardware"),
-    requirements=[
-        RequirementRow(ref="8.4", section="Warranty",
-                       requirement="Declare End-of-Sale and End-of-Support dates.",
-                       mandatory="M"),
+CHECKLIST = {
+    "tender_info": {
+        "issue_date": "2026-06-10", "submission_deadline": "2026-07-01",
+        "purchase_item": "Firewall appliances", "issued_by": "IT Procurement",
+        "requesting_dept": "Network", "tender_reference": "XXEON-IT-2026-001",
+        "procurement_type": "Tender", "estimated_value": "MYR 400,000",
+        "purchase_category": "Hardware",
+    },
+    "requirements": [
+        {"ref": "8.4", "section": "Warranty",
+         "requirement": "Declare End-of-Sale and End-of-Support dates.",
+         "mandatory": "M"},
     ],
-)
+}
 
 
-class FakeMessages:
-    def parse(self, **kwargs):
-        model = kwargs["output_format"]
-        result = PLAN if model is InterviewPlan else CHECKLIST
-        return SimpleNamespace(parsed_output=result)
+class FakeBackend:
+    name = "fake"
+    model = "fake-model"
 
-    @contextmanager
-    def stream(self, **kwargs):
-        yield SimpleNamespace(text_stream=iter(["See clause 8.4 ", "(Warranty)."]))
+    def stream_chat(self, system, messages, max_tokens=4096):
+        assert "guideline" in system
+        yield from ["See clause 8.4 ", "(Warranty)."]
 
-
-class FakeClient:
-    messages = FakeMessages()
+    def complete_json(self, system, prompt, schema, schema_name,
+                      max_tokens=8192):
+        return PLAN if schema_name == "interview_plan" else CHECKLIST
 
 
 def make_coach():
-    return Coach("guideline text", client=FakeClient())
+    return Coach("guideline text", FakeBackend())
 
 
 def test_chat_answer_streams():
@@ -65,8 +61,7 @@ def test_tender_flow_writes_workbook(tmp_path):
 
     wb = load_workbook(out)
     tracker = wb["Compliance Tracker"]
-    values = [row for row in tracker.iter_rows(values_only=True)]
-    flat = [c for row in values for c in row if c]
+    flat = [c for row in tracker.iter_rows(values_only=True) for c in row if c]
     assert "Declare End-of-Sale and End-of-Support dates." in flat
 
 

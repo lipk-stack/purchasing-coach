@@ -1,6 +1,15 @@
-"""Load a guideline document (.docx, .md, .txt, .pdf) into plain text."""
+"""Load a guideline document (.docx, .md, .txt, .pdf) into plain text.
 
+The .docx reader uses only the standard library (a .docx file is a zip of
+XML), so the app stays portable — no compiled dependencies like lxml.
+"""
+
+import re
+import zipfile
+import xml.etree.ElementTree as ET
 from pathlib import Path
+
+_W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 
 
 def load_guideline(path: str | Path) -> str:
@@ -21,26 +30,34 @@ def load_guideline(path: str | Path) -> str:
 
 
 def _load_docx(path: Path) -> str:
-    import docx  # python-docx
+    with zipfile.ZipFile(path) as zf:
+        root = ET.fromstring(zf.read("word/document.xml"))
 
-    document = docx.Document(str(path))
     lines: list[str] = []
-    for para in document.paragraphs:
-        text = para.text.strip()
+    for para in root.iter(f"{_W}p"):
+        text = "".join(node.text or "" for node in para.iter(f"{_W}t")).strip()
         if not text:
             continue
-        style = (para.style.name or "").lower()
-        if style.startswith("heading"):
-            try:
-                level = int(style.replace("heading", "").strip() or 1)
-            except ValueError:
-                level = 1
+        level = _heading_level(para)
+        if level:
             lines.append("#" * min(level, 6) + " " + text)
-        elif style.startswith("title"):
-            lines.append("# " + text)
         else:
             lines.append(text)
     return "\n\n".join(lines)
+
+
+def _heading_level(para) -> int:
+    """Return the heading level of a w:p element, or 0 for body text."""
+    style = para.find(f"{_W}pPr/{_W}pStyle")
+    if style is None:
+        return 0
+    name = style.get(f"{_W}val", "").lower()
+    if name.startswith("heading"):
+        digits = re.sub(r"\D", "", name)
+        return int(digits) if digits else 1
+    if name in ("title", "subtitle"):
+        return 1
+    return 0
 
 
 def _load_pdf(path: Path) -> str:
