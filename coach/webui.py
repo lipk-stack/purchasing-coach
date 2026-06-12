@@ -197,6 +197,21 @@ PAGE = r"""<!DOCTYPE html>
   .msg .who { font-size:11.5px; font-weight:600; color:var(--muted);
               text-transform:uppercase; letter-spacing:.04em;
               margin-bottom:2px; white-space:normal; }
+  .msg .md { white-space:normal; }
+  .md p { margin:0 0 8px; } .md p:last-child { margin-bottom:0; }
+  .md ul, .md ol { margin:0 0 8px; padding-left:22px; }
+  .md li { margin:2px 0; }
+  .md .h { font-weight:700; color:var(--accent); margin:10px 0 4px; }
+  .md code { background:#eef1f5; border-radius:4px; padding:1px 5px;
+             font:13px/1.4 ui-monospace,Consolas,monospace; }
+  .md pre { background:#eef1f5; border-radius:8px; padding:10px 12px;
+            overflow-x:auto; font:13px/1.5 ui-monospace,Consolas,monospace;
+            margin:0 0 8px; }
+  .md table { border-collapse:collapse; margin:4px 0 8px; font-size:14px; }
+  .md th, .md td { border:1px solid #d4dbe3; padding:5px 10px;
+                   text-align:left; vertical-align:top; }
+  .md th { background:var(--accent); color:#fff; font-weight:600; }
+  .md tr:nth-child(even) td { background:#f6f8fa; }
   .msg.sys { background:#fdf6e3; }
   .msg a.dl { display:inline-block; margin-top:6px; padding:7px 14px;
               background:var(--accent2); color:#fff; border-radius:6px;
@@ -245,13 +260,63 @@ fetch('/api/meta').then(r => r.json()).then(m => {
     `${m.guideline} · ${m.backend} (${m.model})`;
 }).catch(() => {});
 
+// Minimal markdown renderer for model replies: paragraphs, bullet/numbered
+// lists, ### headings, **bold**, `code`, ``` fences and | tables |.
+// Everything is HTML-escaped first; only our own tags are emitted.
+function md(src) {
+  const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;');
+  const inline = s => esc(s)
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>');
+  let html = '', list = null, table = false, fence = false, fenceBuf = [];
+  const closeList = () => { if (list) { html += `</${list}>`; list = null; } };
+  const closeTable = () => { if (table) { html += '</table>'; table = false; } };
+  for (const line of src.split('\n')) {
+    if (fence) {
+      if (/^\s*```/.test(line)) {
+        html += '<pre>' + esc(fenceBuf.join('\n')) + '</pre>';
+        fence = false; fenceBuf = [];
+      } else fenceBuf.push(line);
+      continue;
+    }
+    if (/^\s*```/.test(line)) { closeList(); closeTable(); fence = true; continue; }
+    if (/^\s*\|.*\|\s*$/.test(line)) {
+      closeList();
+      if (/^\s*\|[\s:|-]+\|\s*$/.test(line)) continue;  // |---|---| separator
+      const cells = line.trim().replace(/^\|/, '').replace(/\|$/, '')
+                        .split('|').map(c => inline(c.trim()));
+      const tag = table ? 'td' : 'th';
+      if (!table) { html += '<table>'; table = true; }
+      html += '<tr>' + cells.map(c => `<${tag}>${c}</${tag}>`).join('') + '</tr>';
+      continue;
+    }
+    closeTable();
+    const h = line.match(/^#{1,6}\s+(.*)/);
+    const li = line.match(/^\s*[-*+]\s+(.*)/);
+    const num = line.match(/^\s*\d+[.)]\s+(.*)/);
+    if (h) { closeList(); html += '<div class="h">' + inline(h[1]) + '</div>'; }
+    else if (li) {
+      if (list !== 'ul') { closeList(); html += '<ul>'; list = 'ul'; }
+      html += '<li>' + inline(li[1]) + '</li>';
+    } else if (num) {
+      if (list !== 'ol') { closeList(); html += '<ol>'; list = 'ol'; }
+      html += '<li>' + inline(num[1]) + '</li>';
+    } else if (!line.trim()) { closeList(); }
+    else { closeList(); html += '<p>' + inline(line) + '</p>'; }
+  }
+  if (fence) html += '<pre>' + esc(fenceBuf.join('\n')) + '</pre>';
+  closeList(); closeTable();
+  return html;
+}
+
 function add(who, cls, text) {
   const div = document.createElement('div');
   div.className = 'msg ' + cls;
   const tag = document.createElement('div');
   tag.className = 'who';
   tag.textContent = who;
-  const body = document.createElement('span');
+  const body = document.createElement('div');
   body.textContent = text;
   div.append(tag, body);
   log.appendChild(div);
@@ -283,11 +348,12 @@ async function chat(text) {
     const reader = resp.body.getReader();
     const dec = new TextDecoder();
     let full = '';
+    body.className = 'md';
     for (;;) {
       const {done, value} = await reader.read();
       if (done) break;
       full += dec.decode(value, {stream: true});
-      body.textContent = full;
+      body.innerHTML = md(full);
       log.scrollTop = log.scrollHeight;
     }
     history.push({role: 'assistant', content: full});

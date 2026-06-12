@@ -7,6 +7,7 @@ from pathlib import Path
 from . import __version__
 from .backends import BackendError, detect_backend
 from .documents import load_guideline
+from .format import StreamPrinter, enable_windows_ansi
 from .llm import Coach
 from .tender import run_tender_flow
 
@@ -82,6 +83,7 @@ def main(argv: list[str] | None = None) -> int:
     banner = BANNER.format(version=__version__, guideline=args.guideline,
                            backend=backend.name, model=backend.model)
     print(banner)
+    enable_windows_ansi()
     history: list[dict] = []
     while True:
         try:
@@ -108,10 +110,12 @@ def main(argv: list[str] | None = None) -> int:
         history.append({"role": "user", "content": user})
         print("coach> ", end="", flush=True)
         reply_parts: list[str] = []
+        printer = StreamPrinter()
         try:
             for text in coach.answer(history):
                 reply_parts.append(text)
-                print(text, end="", flush=True)
+                printer.feed(text)
+            printer.close()
             print()
         except Exception as exc:
             print(f"\nRequest failed: {exc}", file=sys.stderr)

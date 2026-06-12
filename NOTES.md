@@ -2,6 +2,26 @@
 
 Reference this file at the start of each routine run.
 
+## Iteration 3b — 2026-06-12
+
+Structured output formatting (user request):
+
+- System prompt now asks the model to lead with a one-sentence answer and
+  use markdown structure (clause-first bullets, **bold** clause numbers,
+  sparing ### headings, short paragraphs).
+- Web UI renders that markdown properly while streaming: paragraphs,
+  bullet/numbered lists, headings, **bold**, `code`, ``` fences and
+  | tables |. All input is HTML-escaped before our tags are added, so
+  model output can't inject markup.
+- New `coach/format.py`: terminal renderer. With a TTY it styles headings
+  (bold+underline), clause numbers (bold) and inline code (cyan), and
+  shows bullets as "•"; piped/NO_COLOR output gets the markers stripped
+  instead. Line-buffered so streamed chunks can split lines or ** markers
+  anywhere. Legacy Windows consoles get VT mode enabled at startup.
+- Tests: 30 passing (renderer covered incl. chunk-splitting); md() also
+  exercised in Node against a representative reply; CLI verified
+  end-to-end over the mock LM Studio server; .pyz rebuilt (267 KB).
+
 ## Iteration 3 — 2026-06-11
 
 Local web UI + genuine template recovered:
@@ -84,9 +104,10 @@ Compliance Tracker) from the template, docx/md/txt loaders, offline tests.
    is still a reconstruction (same text as the Drive original, which is
    unchanged). Only worth re-transferring if the docx parser ever misbehaves
    on the real file.
-6. **Web UI polish (nice-to-have).** Replies render as plain text in the
-   browser — light markdown rendering (bold/lists) would read better; a
-   "restart interview" button mid-flow could help too.
+6. **Web UI polish (nice-to-have).** Markdown rendering done (iteration 3b).
+   Remaining ideas: a "restart interview" button mid-flow; check how the
+   structured-output prompt behaves on small local models during the live
+   LLM run (follow-up 1) — verbose markdown could bloat 7B model replies.
 7. **Drive notes doc.** The "Purchasing Coach – Notes" Google Doc in the
    Drive folder still shows the iteration-2 snapshot; the connected Drive
    tooling can create but not update files. This NOTES.md is canonical.
