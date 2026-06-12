@@ -244,7 +244,8 @@ PAGE = r"""<!DOCTYPE html>
   </div>
   <div class="hint">Enter to send, Shift+Enter for a new line. “Tender
   checklist” (or typing /tender) starts a short interview and produces an
-  Excel checklist from your template.</div>
+  Excel checklist from your template. Mid-interview the button restarts the
+  interview; typing “cancel” aborts it.</div>
 </footer>
 <script>
 const log = document.getElementById('log');
@@ -367,13 +368,23 @@ async function chat(text) {
 }
 
 function startTender() {
-  if (busy || tender) return;
+  if (busy) return;
+  const restarting = tender !== null;
   tender = {stage: 'item', item: '', questions: [], answers: []};
-  add('coach', 'sys', 'Tender checklist — what do you want to buy? ' +
+  tenderBtn.textContent = 'Restart interview';
+  add('coach', 'sys',
+      (restarting ? 'Interview restarted — what' : 'Tender checklist — what') +
+      ' do you want to buy? ' +
       'Describe the item or solution in one or two sentences. ' +
-      '(Type “cancel” to abort.)');
+      '(Type “cancel” to abort or “restart” to start over.)');
   box.placeholder = 'e.g. 200 laptops for the sales team';
   box.focus();
+}
+
+function endTender() {
+  tender = null;
+  tenderBtn.textContent = 'Tender checklist';
+  box.placeholder = 'Ask about the guideline…';
 }
 
 function askNext() {
@@ -383,10 +394,14 @@ function askNext() {
 }
 
 async function tenderInput(text) {
-  if (text.toLowerCase() === 'cancel') {
-    tender = null;
-    box.placeholder = 'Ask about the guideline…';
+  const word = text.toLowerCase();
+  if (word === 'cancel') {
+    endTender();
     add('coach', 'sys', 'Tender flow cancelled.');
+    return;
+  }
+  if (word === 'restart' || word === '/tender') {
+    startTender();
     return;
   }
   add('you', 'me', text);
@@ -409,8 +424,7 @@ async function tenderInput(text) {
       askNext();
     } catch (err) {
       note.textContent = 'Could not plan the interview: ' + err.message;
-      tender = null;
-      box.placeholder = 'Ask about the guideline…';
+      endTender();
     } finally {
       setBusy(false);
       box.focus();
@@ -447,8 +461,7 @@ async function tenderInput(text) {
   } catch (err) {
     note.textContent = 'Checklist generation failed: ' + err.message;
   } finally {
-    tender = null;
-    box.placeholder = 'Ask about the guideline…';
+    endTender();
     setBusy(false);
     box.focus();
   }

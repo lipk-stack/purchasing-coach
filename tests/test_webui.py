@@ -51,6 +51,17 @@ def test_index_and_meta(server):
                     "guideline": "guideline.docx"}
 
 
+def test_page_has_restart_interview_wiring(server):
+    base, _ = server
+    _, _, body = _get(base + "/")
+    page = body.decode()
+    # Mid-interview the tender button becomes a restart control, and the
+    # typed "restart" / "/tender" inputs re-enter startTender().
+    assert "Restart interview" in page
+    assert "function endTender()" in page
+    assert "word === 'restart' || word === '/tender'" in page
+
+
 def test_chat_streams_reply(server):
     base, _ = server
     req = urllib.request.Request(

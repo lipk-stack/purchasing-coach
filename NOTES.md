@@ -2,6 +2,28 @@
 
 Reference this file at the start of each routine run.
 
+## Iteration 4 — 2026-06-12
+
+Restart-interview control + first check-in to main:
+
+- **Restart interview** (the remaining idea from follow-up 6): during a
+  tender interview the "Tender checklist" button becomes "Restart
+  interview" and re-asks from the item question; typing `restart` or
+  `/tender` mid-flow does the same, `cancel` still aborts. Flow teardown
+  is centralised in `endTender()` so the button label/placeholder reset on
+  cancel, plan failure and completion alike.
+- **main synced**: previous iterations only ever pushed the dev branch, so
+  `main` was still at the initial commit; merged the working copy to main
+  per the standing instruction. Do this every run from now on.
+- **Drive checked**: guideline + template still unmodified since
+  2026-06-10; no sample refresh needed.
+- **Live LLM still unavailable** (no local server, no API key — checked
+  again); follow-ups 1 and 2 remain blocked in this environment.
+- Tests: 31 passing (new test pins the restart wiring in the served page);
+  page JS evaluated under Node with DOM stubs; .pyz rebuilt (267 KB) and
+  smoke-tested end to end (web chat + tender + download) against the mock
+  LM Studio server.
+
 ## Iteration 3b — 2026-06-12
 
 Structured output formatting (user request):
@@ -104,10 +126,13 @@ Compliance Tracker) from the template, docx/md/txt loaders, offline tests.
    is still a reconstruction (same text as the Drive original, which is
    unchanged). Only worth re-transferring if the docx parser ever misbehaves
    on the real file.
-6. **Web UI polish (nice-to-have).** Markdown rendering done (iteration 3b).
-   Remaining ideas: a "restart interview" button mid-flow; check how the
-   structured-output prompt behaves on small local models during the live
-   LLM run (follow-up 1) — verbose markdown could bloat 7B model replies.
+6. **Web UI polish (nice-to-have).** Markdown rendering done (3b), restart
+   interview done (4). Remaining: check how the structured-output prompt
+   behaves on small local models during the live LLM run (follow-up 1) —
+   verbose markdown could bloat 7B model replies.
 7. **Drive notes doc.** The "Purchasing Coach – Notes" Google Doc in the
    Drive folder still shows the iteration-2 snapshot; the connected Drive
    tooling can create but not update files. This NOTES.md is canonical.
+8. **Check in to main every run.** main was 4 iterations stale until
+   iteration 4. After a green run: push the dev branch, then fast-forward
+   main to it and push main.
