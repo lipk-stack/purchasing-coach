@@ -2,6 +2,52 @@
 
 Reference this file at the start of each routine run.
 
+## Iteration 6 — 2026-06-13
+
+Web UI redesign + browserless stress harness (user request):
+
+- **Researched** current chat-UI / single-file design practices (UXPin,
+  TheFrontKit, dev.to LLM-UI, CSS-variables dark-mode guides) and applied the
+  high-value, constraint-compatible ones (kept the single self-contained HTML
+  page — inline CSS/JS, system fonts, no CDN/build — so it still runs offline
+  on locked-down machines).
+- **Enhanced `coach/webui.py` page**:
+  - Design system via CSS custom properties; **light/dark themes** following
+    `prefers-color-scheme`, with a header toggle persisted to `localStorage`
+    and applied before first paint (no flash).
+  - **Stop button**: Send turns into Stop while a reply streams (Esc also
+    stops); cancels via `AbortController`. Abort is detected robustly — undici/
+    browser fetch ends an aborted stream cleanly (`done`) rather than throwing,
+    so we also check `signal.aborted` after the read loop. Partial reply is
+    kept (with an italic "stopped" note) so the conversation stays coherent.
+    Server `_chat` now swallows `BrokenPipeError` on client disconnect.
+  - Accessibility: chat log is an ARIA live region (`role="log"`,
+    `aria-live="polite"`), labelled controls, `role=status` announcements,
+    48px (>=44px) touch targets, focus-visible rings, `prefers-reduced-motion`.
+  - Polish: PC/You/i avatars, copy-to-clipboard on replies, auto-growing
+    textarea, scroll only auto-follows when already at the bottom, responsive
+    mobile layout, calmer panel/border styling. The unverified-clause warning
+    from iter 5 now renders in red in the web UI too.
+- **Installed for use**: a browser binary can't be installed here (Playwright
+  CDN, gvt1 and Puppeteer's Chrome download are all blocked by the network
+  policy; no system chromium), so the UI tooling is **jsdom** (npm, reachable)
+  — a real in-process DOM that runs the page's JS. The harness lives in
+  `.design-tools/` (gitignored) and is documented in follow-up 9.
+- **Stress tested** (LM Studio on the user's machine is NOT reachable from
+  this sandbox — its localhost is isolated; verified). Drove the *real* page
+  in jsdom against the *real* `http.server` backed by a streaming LM-Studio
+  mock, using Node's global fetch (HTTP streaming + AbortSignal) so the whole
+  stack is exercised: **34/34 checks pass** (theme toggle+persist, streaming
+  render, caret, Stop/abort keeps partial, markdown table/code/bold, HTML-
+  injection escaping, full tender flow incl. unverified warning + download,
+  cancel/restart, 400-line markdown x200 in ~100ms, 300 rapid DOM messages).
+  HTTP load test (`load_test.py`): **40 concurrent chat streams + 20
+  concurrent tender runs OK, 20 mid-stream client aborts, server healthy
+  after** — all green.
+- Tests: 39 pytest still pass (page wiring assertions preserved); .pyz rebuilt
+  (272 KB) and confirmed to bundle the new page.
+- **main synced** after the green run.
+
 ## Iteration 5 — 2026-06-13
 
 Guideline-grounded checklist (deterministic output fidelity):
@@ -165,13 +211,26 @@ Compliance Tracker) from the template, docx/md/txt loaders, offline tests.
    unchanged). The docx parser handles it correctly — iteration 5 parsed 65
    clauses cleanly from it. Only worth re-transferring if the parser ever
    misbehaves on the real file.
-6. **Web UI polish (nice-to-have).** Markdown rendering done (3b), restart
-   interview done (4). Remaining: check how the structured-output prompt
-   behaves on small local models during the live LLM run (follow-up 1) —
-   verbose markdown could bloat 7B model replies.
+6. **Web UI polish.** Markdown (3b), restart interview (4), full redesign +
+   dark mode + Stop button + a11y (6) all done. Remaining: check how the
+   structured-output prompt behaves on small local models during the live LLM
+   run (follow-up 1) — verbose markdown could bloat 7B replies. Possible
+   nice-to-haves: copy button on individual code blocks, message timestamps.
 7. **Drive notes doc.** The "Purchasing Coach – Notes" Google Doc in the
    Drive folder still shows the iteration-2 snapshot; the connected Drive
    tooling can create but not update files. This NOTES.md is canonical.
 8. **Check in to main every run.** main was 4 iterations stale until
    iteration 4. After a green run: push the dev branch, then fast-forward
    main to it and push main.
+9. **UI stress harness is local-only.** Lives in `.design-tools/` (gitignored;
+   needs `npm install jsdom` + the bundled `serve_mock.py`/`ui_test.js`/
+   `load_test.py`). Not committed because a real browser can't be installed in
+   the web sandbox (Playwright/Puppeteer download hosts are blocked) and we
+   don't want node_modules in the repo. If we later want this in CI, either
+   vendor a tiny jsdom-free DOM stub or run it where a browser is available.
+10. **Live UI test against the user's LM Studio.** The web sandbox cannot
+    reach the user's machine localhost (LM Studio at :1234 is isolated —
+    verified 2026-06-13), so stress testing used an in-container streaming
+    mock. To validate against the real model, run locally:
+    `python purchasing-coach.pyz --guideline g.docx --template t.xlsx --web`
+    with LM Studio's server started, then exercise chat + Stop + a tender run.

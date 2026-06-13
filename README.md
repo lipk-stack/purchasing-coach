@@ -54,6 +54,15 @@ same interview as `/tender` in the terminal and ends with a download link
 for the generated workbook. `--port` changes the port, `--no-browser`
 skips the auto-open.
 
+The page is one self-contained HTML document (inline CSS/JS, system fonts,
+no CDN or build step, so it works offline on locked-down machines) with:
+light/dark themes (follows the OS setting, with a toggle remembered across
+visits), a **Stop** button that cancels a streaming reply (Send turns into
+Stop; Esc also stops), copy-to-clipboard on replies, an auto-growing input,
+and accessibility built in (ARIA live region for streamed text, labelled
+controls, 4.5:1 contrast, 44px touch targets, keyboard and reduced-motion
+support).
+
 The backend is auto-detected (LM Studio → Ollama → Claude API if an
 `ANTHROPIC_API_KEY` is set). Pin it explicitly with `--backend lmstudio`,
 `--backend ollama`, `--backend claude`, or point at any OpenAI-compatible
