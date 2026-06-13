@@ -27,6 +27,24 @@ _HEADING = re.compile(r"^#{1,6}\s+(\d+(?:\.\d+)*)\s+(\S.*)$")
 # tolerating prefixes like "Clause 5.3" or "Section 5.6.".
 _REF = re.compile(r"\d+(?:\.\d+)*")
 
+# Words that make a guideline statement a binding ("M") obligation on the
+# vendor versus a recommended ("O") one. Strong wins over weak when both
+# appear, and a normative statement with neither defaults to mandatory (the
+# guideline is written predominantly in must/shall style).
+_STRONG = re.compile(
+    r"\b(must|shall|mandatory|mandated|required|requires|require|"
+    r"prohibited|may not|must not|shall not|responsible for)\b", re.I)
+_WEAK = re.compile(
+    r"\b(should|recommended|may|preferred|where feasible|where possible|"
+    r"optional|encouraged)\b", re.I)
+# A body paragraph is treated as a vendor requirement only if it carries one
+# of these obligation cues; this skips descriptive prose (e.g. the
+# Introduction) so it never lands in the compliance tracker.
+_NORMATIVE = re.compile(
+    r"\b(must|shall|mandatory|mandated|required|requires|require|"
+    r"prohibited|should|recommended|may not|must not|shall not|"
+    r"responsible for|are required|is required)\b", re.I)
+
 
 def parse_clauses(text: str) -> dict[str, str]:
     """Return an ordered ``{clause_ref: heading_title}`` map for the guideline.
@@ -42,6 +60,47 @@ def parse_clauses(text: str) -> dict[str, str]:
             ref, title = match.group(1), match.group(2).strip()
             clauses.setdefault(ref, title)
     return clauses
+
+
+def classify_obligation(text: str) -> str:
+    """Return 'M' (binding) or 'O' (recommended) for a requirement statement."""
+    if _STRONG.search(text or ""):
+        return "M"
+    if _WEAK.search(text or ""):
+        return "O"
+    return "M"
+
+
+def parse_clause_requirements(text: str) -> dict[str, list[RequirementRow]]:
+    """Break the guideline body into granular, per-clause requirement rows.
+
+    Each normative paragraph under a numbered clause heading becomes one
+    :class:`RequirementRow`, carrying the clause ref, the real heading title
+    and an M/O flag derived from the paragraph's own wording. Non-normative
+    prose (e.g. the Introduction) is skipped. The result is the deterministic,
+    guideline-derived source of truth the checklist is expanded from, so the
+    vendor-facing requirements are detailed and verbatim rather than a model
+    paraphrase. Returns an ordered ``{clause_ref: [rows...]}`` map following
+    the document; empty for unstructured text.
+    """
+    by_clause: dict[str, list[RequirementRow]] = {}
+    ref: str | None = None
+    title = ""
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        heading = _HEADING.match(stripped)
+        if heading:
+            ref, title = heading.group(1), heading.group(2).strip()
+            by_clause.setdefault(ref, [])
+            continue
+        if ref is None or not _NORMATIVE.search(stripped):
+            continue
+        by_clause[ref].append(
+            RequirementRow(ref=ref, section=title, requirement=stripped,
+                           mandatory=classify_obligation(stripped)))
+    return by_clause
 
 
 def normalize_ref(ref: str) -> str:
@@ -95,3 +154,103 @@ def reconcile_requirements(
 
     cleaned.sort(key=lambda r: clause_sort_key(r.ref))
     return cleaned, unverified
+
+
+def expand_requirements(
+    rows: list[RequirementRow], clause_reqs: dict[str, list[RequirementRow]]
+) -> list[RequirementRow]:
+    """Expand each selected clause into its granular guideline requirements.
+
+    ``rows`` are the model's grounded selections (after
+    :func:`reconcile_requirements`); each one names a clause the model judged
+    applicable to the purchase. For every such clause this replaces the single
+    model row with the full set of atomic requirement rows parsed from the
+    guideline body for that clause — and for any of its sub-clauses, so citing
+    a whole section (e.g. "5") pulls in 5.1–5.7. Clauses the guideline has no
+    parsed body for (e.g. a headings-only document) keep the model's own row,
+    so the function degrades gracefully. Rows are de-duplicated and returned in
+    guideline order; the within-clause order of the source body is preserved.
+    """
+    if not clause_reqs:
+        return rows
+
+    out: list[RequirementRow] = []
+    seen: set[tuple[str, str]] = set()
+
+    def push(row: RequirementRow) -> None:
+        key = (row.ref, row.requirement.strip().lower())
+        if key not in seen:
+            seen.add(key)
+            out.append(row)
+
+    for row in rows:
+        ref = normalize_ref(row.ref)
+        atomic: list[RequirementRow] = []
+        for cref, reqs in clause_reqs.items():
+            if cref == ref or cref.startswith(ref + "."):
+                atomic.extend(reqs)
+        if atomic:
+            for r in atomic:
+                push(RequirementRow(r.ref, r.section, r.requirement,
+                                    r.mandatory))
+        else:
+            push(row)
+
+    out.sort(key=lambda r: clause_sort_key(r.ref))
+    return out
+
+
+# Applicability questions derived from the guideline's top-level sections. Each
+# entry is (section root that must exist, dedupe keywords, question). They are
+# merged into the interview so the reverse-prompting covers every major part of
+# the guideline and the model can decide which sections apply — even on small
+# models that under-ask. Gated on the guideline actually having that section.
+_COVERAGE = [
+    ("4", ("contract duration", "renewal", "termination", "contract term"),
+     "What is the expected contract duration, and are there renewal, "
+     "extension or termination conditions to plan for?"),
+    ("5", ("personal data", "pdpa", "payment", "pci", "sensitive data"),
+     "Will the solution store, process or transmit personal data (PDPA) or "
+     "payment-card data (PCI DSS)?"),
+    ("5", ("internet-facing", "network", "production system", "exposed"),
+     "Will the solution be internet-facing or connect to XXEON's internal "
+     "network and production systems?"),
+    ("6", ("integrat", "interoper", "sso", "existing system"),
+     "Does the solution need to integrate with existing XXEON systems, "
+     "databases, browsers or single sign-on?"),
+    ("7", ("support", "maintenance", "sla", "uptime"),
+     "What level of ongoing support and maintenance is required (e.g. 24/7 or "
+     "business hours), and over what period?"),
+    ("8", ("hardware", "equipment", "appliance", "device", "physical"),
+     "Does this purchase include physical hardware or equipment (e.g. servers, "
+     "appliances, end-user devices)? If so, list the main items."),
+    ("9", ("software", "licen", "application", "subscription"),
+     "Does it include software or application licensing? If so, which model is "
+     "preferred (perpetual, subscription or SaaS)?"),
+    ("11", ("cloud", "hosted", "saas", "iaas", "paas", "hosting"),
+     "Is the vendor providing cloud or hosted services (SaaS/IaaS/PaaS), and "
+     "where would the data be hosted?"),
+    ("11.3", ("cybersecurity assessment", "penetration", "pen test",
+              "compromise assessment", "security assessment"),
+     "Is this a cybersecurity assessment service such as a penetration test or "
+     "compromise assessment?"),
+    ("5", ("on-premise", "on-prem", "deploy", "hybrid"),
+     "Will the solution be deployed on-premise, in the cloud, or as a hybrid?"),
+]
+
+
+def coverage_questions(clauses: dict[str, str]) -> list[tuple[str, str]]:
+    """Return guideline-grounded applicability questions for the interview.
+
+    Each is ``(dedupe_keywords_csv, question)``. Only questions whose section
+    exists in the guideline are returned; empty for unstructured guidelines so
+    we never ask questions the guideline can't ground.
+    """
+    if not clauses:
+        return []
+    present = set(clauses)
+    out: list[tuple[str, str]] = []
+    for root, keywords, question in _COVERAGE:
+        if any(ref == root or ref.startswith(root + ".") for ref in present):
+            out.append((",".join(keywords), question))
+    return out

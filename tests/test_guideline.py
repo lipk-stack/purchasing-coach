@@ -1,7 +1,9 @@
 """Clause indexing + checklist reconciliation (deterministic, no LLM)."""
 
-from coach.guideline import (clause_sort_key, normalize_ref, parse_clauses,
-                            reconcile_requirements)
+from coach.guideline import (classify_obligation, clause_sort_key,
+                            coverage_questions, expand_requirements,
+                            normalize_ref, parse_clause_requirements,
+                            parse_clauses, reconcile_requirements)
 from coach.models import RequirementRow
 
 GUIDELINE = """\
@@ -21,7 +23,7 @@ Minimum warranty periods must be specified.
 
 ### 8.10 Imaginary Later Clause
 
-Body text.
+Spare parts must be available.
 """
 
 
@@ -82,3 +84,69 @@ def test_reconcile_noop_without_clause_index():
     cleaned, unverified = reconcile_requirements(rows, {})
     assert cleaned == rows
     assert unverified == []
+
+
+# ---- granular requirement extraction ------------------------------------
+
+def test_classify_obligation_strong_weak_default():
+    assert classify_obligation("Vendors must supply a report.") == "M"
+    assert classify_obligation("A TCO analysis should be provided.") == "O"
+    # 'must' wins even when a weak word also appears.
+    assert classify_obligation("A one-way NDA is recommended but must "
+                               "be in place.") == "M"
+    # Normative statement without an explicit cue defaults to mandatory.
+    assert classify_obligation("Vendors are required to comply.") == "M"
+
+
+def test_parse_clause_requirements_splits_body_into_rows():
+    reqs = parse_clause_requirements(GUIDELINE)
+    # Each normative body paragraph becomes its own row with the real title.
+    assert [r.requirement for r in reqs["5.6"]] == [
+        "Annual third-party security audits are mandatory."]
+    assert reqs["8.4"][0].section == "Warranty and Replacement Policies"
+    assert reqs["8.4"][0].mandatory == "M"
+    # Headings with no normative body get an empty list, not a bogus row.
+    assert reqs["5"] == []
+
+
+def test_parse_clause_requirements_skips_non_normative_prose():
+    text = ("### 3.1 Purpose\n\nThis document describes the framework.\n\n"
+            "### 4.1 Terms\n\nThe vendor must define deliverables.\n")
+    reqs = parse_clause_requirements(text)
+    assert reqs["3.1"] == []  # descriptive prose is not a requirement
+    assert len(reqs["4.1"]) == 1
+
+
+def test_expand_requirements_fans_out_section_to_subclauses():
+    clause_reqs = parse_clause_requirements(GUIDELINE)
+    # Model selected the whole of section 8 with one row.
+    rows = [RequirementRow("8", "Hardware", "Hardware applies.", "M")]
+    expanded = expand_requirements(rows, clause_reqs)
+    refs = [r.ref for r in expanded]
+    assert refs == ["8.4", "8.10"]
+    assert expanded[0].requirement == "Minimum warranty periods must be " \
+        "specified."
+
+
+def test_expand_requirements_keeps_unparsed_rows():
+    # A clause the guideline has no parsed body for keeps the model's row.
+    clause_reqs = parse_clause_requirements(GUIDELINE)
+    rows = [RequirementRow("99.9", "Made up", "Not in the guideline.", "O")]
+    expanded = expand_requirements(rows, clause_reqs)
+    assert [r.requirement for r in expanded] == ["Not in the guideline."]
+
+
+def test_expand_requirements_noop_without_body():
+    rows = [RequirementRow("8.4", "Warranty", "Declare dates.", "M")]
+    assert expand_requirements(rows, {}) == rows
+
+
+def test_coverage_questions_gated_on_present_sections():
+    clauses = parse_clauses(GUIDELINE)  # has sections 5 and 8 only
+    questions = [q for _, q in coverage_questions(clauses)]
+    joined = " ".join(questions).lower()
+    assert "hardware" in joined          # section 8 present
+    assert "personal data" in joined     # section 5 present
+    assert "support and maintenance" not in joined  # section 7 absent
+    # Unstructured guideline grounds no coverage questions.
+    assert coverage_questions({}) == []

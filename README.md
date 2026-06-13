@@ -8,10 +8,26 @@ procurement guideline in `.docx`) and lets you:
    buy, answer a short interview driven by the guideline, and get an Excel
    workbook (based on your tender template) with the tender information sheet
    filled in and a compliance tracker listing every applicable requirement
-   marked Mandatory/Optional. Each row is grounded against the actual
-   guideline: section titles are taken from the real clause headings, rows
-   come out in guideline order, and any clause number the model cited that
-   isn't in the guideline is flagged for you to double-check.
+   marked Mandatory/Optional, ready for the vendor to populate (Vendor Status
+   / Vendor Remarks columns) and submit for review and approval.
+
+   The checklist is **granular and derived from the guideline in detail**: the
+   model decides which clauses apply to your purchase, then each selected
+   clause is expanded into its individual, vendor-facing requirements taken
+   **verbatim from the guideline body** — so a single clause like *5.3 Access
+   Control* becomes one tracker row per obligation (MFA enforced, RBAC
+   implemented, SSO integration, password policy, …) rather than one
+   paraphrased summary line. M/O is set from the guideline's own wording
+   (must/shall → Mandatory, should/recommended → Optional). Rows come out in
+   guideline order with the real clause headings, and any clause number the
+   model cited that isn't in the guideline is flagged for you to double-check.
+
+   The interview itself is **reverse-prompted from the guideline**: alongside
+   the model's questions it always probes applicability of every major section
+   present (hardware, software/licensing, cloud/SaaS hosting, personal/payment
+   data, cybersecurity assessments, integration/SSO, support level, contract
+   duration, deployment model) so the right sections — and therefore the full
+   set of relevant requirements — make it into the checklist.
 
 It is designed for locked-down corporate machines: it runs against a **local
 LLM** served by **LM Studio** or **Ollama** (auto-detected, no cloud account
@@ -115,7 +131,8 @@ Project layout:
 - `coach/backends.py` — LLM backends: OpenAI-compatible local servers
   (LM Studio/Ollama, stdlib `urllib` only) and optional Claude API
 - `coach/documents.py` — guideline loading (docx/md/txt/pdf → text)
-- `coach/guideline.py` — clause index + checklist reconciliation (grounding)
+- `coach/guideline.py` — clause index, granular per-clause requirement
+  extraction + expansion, interview coverage questions (grounding)
 - `coach/llm.py` — prompts + response parsing on top of a backend
 - `coach/models.py` — dataclass models + JSON schemas for structured output
 - `coach/tender.py` — interview flow

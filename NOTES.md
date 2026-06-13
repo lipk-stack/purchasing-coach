@@ -2,6 +2,60 @@
 
 Reference this file at the start of each routine run.
 
+## Iteration 7 — 2026-06-13
+
+Granular, guideline-derived checklist + reverse-prompting coverage (user
+request: "checklist of granular clauses and requirements the vendor must
+fulfil, derived from the guideline in detail; ask additional questions to
+cover the guideline fully"):
+
+- **`coach/guideline.py` — new deterministic granularity layer:**
+  - `parse_clause_requirements()` indexes the guideline *body*, not just
+    headings: each normative paragraph under a clause becomes one
+    `RequirementRow` carrying the real heading title and an M/O flag from its
+    own wording. Non-normative prose (Introduction, etc.) is skipped via
+    `_NORMATIVE`. On the genuine guideline this yields **202 atomic
+    requirements across 65 clauses** (e.g. 5.3 → 8 rows, 5.6 → 9, 4.1 → 7).
+  - `classify_obligation()` — strong cues (must/shall/mandatory/required/
+    responsible for) → "M", weak (should/recommended/may/where feasible) →
+    "O", strong wins; normative-but-uncued defaults to M (guideline is
+    must/shall-heavy).
+  - `expand_requirements()` — takes the model's grounded clause selections and
+    fans each one out into its atomic, guideline-verbatim rows (and its
+    sub-clauses, so citing "5" pulls in 5.1–5.7). Clauses with no parsed body
+    keep the model's row (headings-only/degenerate guidelines still work).
+    De-dupes, preserves within-clause body order, returns guideline order.
+  - `coverage_questions()` — applicability questions for every major section
+    the guideline actually contains (hardware/software/cloud/data/cyber-
+    assessment/integration/support/contract/deployment), gated so an
+    unstructured guideline grounds none.
+- **`coach/llm.py`:**
+  - `build_checklist` now instructs the model to *select* every applicable
+    clause comprehensively (one row per clause, whole-section refs allowed)
+    rather than paraphrase — then `expand_requirements` produces the detailed
+    rows. A simulated hardware purchase (sections 4,5,7,8,10,11,12) now writes
+    **158 granular rows** to the real template (table extends to A2:G160),
+    each a verbatim vendor obligation with M/O, vs. the old ~handful of
+    summary lines.
+  - `plan_interview` → `_ensure_coverage()` merges the coverage questions the
+    model didn't already ask (keyword de-dup), capped at `MAX_QUESTIONS=16`.
+    Guarantees section-applicability coverage even on weak local models.
+- **Reconciliation (iter 5) is unchanged and runs first** — canonical titles,
+  ordering and unverified-ref flagging still apply, then expansion layers on
+  the granularity.
+- **Drive checked**: guideline + template unmodified since 2026-06-10
+  (verified again this run) — no sample refresh needed.
+- **Live LLM still unavailable** in this sandbox (no local server reachable,
+  no API key); the whole granularity/coverage layer is deterministic and was
+  verified directly on the genuine guideline text + template, so it's valuable
+  regardless of backend. Follow-ups 1/2 (live quality review) remain open.
+- Tests: **48 passing** (+9: `parse_clause_requirements`, `classify_obligation`,
+  `expand_requirements` fan-out/fallback/no-op, `coverage_questions` gating in
+  `test_guideline.py`; section-fan-out + coverage-merge through the full flow
+  in `test_tender.py`). .pyz rebuilt (275 KB) and confirmed to bundle the new
+  functions; end-to-end workbook generation against the real template green.
+- **main synced** after the green run (standing instruction).
+
 ## Iteration 6 — 2026-06-13
 
 Web UI redesign + browserless stress harness (user request):
@@ -187,20 +241,26 @@ Compliance Tracker) from the template, docx/md/txt loaders, offline tests.
 
 1. **Live LLM run still untested.** Neither a local LLM server nor an
    `ANTHROPIC_API_KEY` is available in the build environment (checked again
-   in iteration 3), so real model quality has not been exercised — only
-   mocked paths. Next run: test a real `/tender` session (one hardware + one
-   SaaS item) against LM Studio with a ~7B instruct model and review
-   requirement selection; small local models may need the checklist prompt
-   split per guideline section.
-2. **Checklist size vs local context windows.** The full guideline rides in
-   the system prompt (~7K tokens). Fine for 8K+ context models; if users load
-   small-context models, add per-category section filtering before the
-   checklist call. The clause index from iteration 5 (`coach/guideline.py`,
-   `parse_clauses`) gives the heading structure to slice on; extend it to also
-   capture each clause's body text, then select relevant sections from the
-   interview answers and trim the system prompt for the checklist call. Best
-   done together with follow-up 1 so the effect on requirement selection can
-   actually be observed.
+   in iterations 3/5/7), so real model quality has not been exercised — only
+   mocked paths. Iteration 7 narrowed the model's checklist job to *clause
+   selection* (the granular requirement text is now deterministic), which
+   makes small-model output far more robust, but the *selection* itself still
+   needs a live review. Next run: test a real `/tender` session (one hardware
+   + one SaaS item) against LM Studio with a ~7B instruct model and check the
+   model picks the right clauses (it can cite whole sections like "5"); under-
+   selection now matters more than paraphrase quality. Consider a deterministic
+   safety net that always includes the cross-cutting sections (4 Contract, 5
+   Information Security, 11 Compliance & Risk) regardless of model output.
+2. **Checklist size vs local context windows.** The full guideline still rides
+   in the system prompt (~7K tokens) — fine for 8K+ context models. The clause
+   *body* index now exists (`parse_clause_requirements`), so the remaining work
+   for small-context models is to trim the system prompt for the checklist call
+   to just the candidate sections. Output tokens are no longer the constraint
+   (the model emits short clause refs + notes, not full requirement text).
+   Best done with follow-up 1 so the effect on clause selection is observable.
+   Possible refinement: within a very large selected section, optionally filter
+   atomic requirements by the interview answers (today the whole clause's
+   requirements are included — deliberately inclusive for compliance safety).
 3. **Drive round-trip.** Optionally upload generated checklists back to the
    "Purchasing Guideline" Drive folder after a tender run.
 4. **Guideline sync.** Drive docs last modified 2026-06-10 (verified

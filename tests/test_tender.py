@@ -71,10 +71,11 @@ def test_chat_answer_streams():
 
 def test_tender_flow_writes_workbook(tmp_path):
     coach = make_coach()
-    scripted = iter(["Firewall appliances for the data centre",
-                     "1 July 2026", "Network team"])
+    # The interview now merges guideline-coverage questions, so answer every
+    # prompt rather than scripting a fixed count.
     out = run_tender_flow(coach, template_path=None, out_dir=tmp_path,
-                          ask=lambda prompt: next(scripted), say=lambda *a: None)
+                          ask=lambda prompt: "Firewall appliances",
+                          say=lambda *a: None)
     assert out is not None and out.exists()
 
     wb = load_workbook(out)
@@ -88,10 +89,9 @@ def test_tender_flow_writes_workbook(tmp_path):
 
 def test_tender_flow_reconciles_against_guideline(tmp_path):
     coach = make_coach()
-    scripted = iter(["Firewall appliances", "1 July 2026", "Network team"])
     notes: list[str] = []
     out = run_tender_flow(coach, None, tmp_path,
-                          ask=lambda prompt: next(scripted),
+                          ask=lambda prompt: "Firewall appliances",
                           say=lambda *a: notes.append(" ".join(map(str, a))))
     wb = load_workbook(out)
     tracker = wb["Compliance Tracker"]
@@ -101,6 +101,70 @@ def test_tender_flow_reconciles_against_guideline(tmp_path):
     assert refs == ["5.6", "8.4", "99.9"]
     # The hallucinated clause is flagged for the user.
     assert any("99.9" in n and "could not be matched" in n for n in notes)
+
+
+GRANULAR_GUIDELINE = """\
+## 5 INFORMATION SECURITY CONSIDERATIONS
+
+### 5.3 Access Control and Authentication Requirements
+
+Multi-factor authentication (MFA) must be enforced for all user accounts.
+
+Role-based access control (RBAC) must be implemented.
+
+Integration with XXEON Single Sign-On (SSO) is required where applicable.
+
+### 5.6 Audits and Assessments
+
+Annual third-party security audits are mandatory.
+
+Right-to-audit clauses must be included in all vendor agreements.
+"""
+
+
+class GranularBackend(FakeBackend):
+    # The model selects whole section 5; expansion fans it out to every
+    # sub-clause requirement parsed from the guideline body.
+    def complete_json(self, system, prompt, schema, schema_name,
+                      max_tokens=8192):
+        if schema_name == "interview_plan":
+            return PLAN
+        return {
+            "tender_info": CHECKLIST["tender_info"],
+            "requirements": [
+                {"ref": "5", "section": "Information Security",
+                 "requirement": "Information security applies.",
+                 "mandatory": "M"},
+            ],
+        }
+
+
+def test_checklist_expands_section_into_granular_rows():
+    coach = Coach(GRANULAR_GUIDELINE, GranularBackend())
+    checklist = coach.build_checklist("SaaS analytics tool", [("q", "a")])
+    reqs = checklist.requirements
+    # Citing section "5" fans out to all five sub-clause requirements, verbatim
+    # from the guideline body and in guideline order.
+    statements = [r.requirement for r in reqs]
+    assert "Multi-factor authentication (MFA) must be enforced for all " \
+           "user accounts." in statements
+    assert "Right-to-audit clauses must be included in all vendor " \
+           "agreements." in statements
+    assert len(reqs) == 5
+    # Sections are the real clause titles; rows ordered 5.3 before 5.6.
+    assert [r.ref for r in reqs] == ["5.3", "5.3", "5.3", "5.6", "5.6"]
+    assert reqs[0].section == "Access Control and Authentication Requirements"
+    assert all(r.mandatory in ("M", "O") for r in reqs)
+
+
+def test_interview_adds_guideline_coverage_questions():
+    coach = Coach(GRANULAR_GUIDELINE, GranularBackend())
+    plan = coach.plan_interview("SaaS analytics tool")
+    text = " ".join(q.question.lower() for q in plan.questions)
+    # The model's two questions plus merged coverage for the data/security
+    # section that the guideline actually contains.
+    assert len(plan.questions) > len(PLAN["questions"])
+    assert "personal data" in text
 
 
 def test_tender_flow_cancels_on_empty_item(tmp_path):
