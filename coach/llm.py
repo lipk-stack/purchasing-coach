@@ -2,6 +2,7 @@
 
 from collections.abc import Iterator
 
+from .guideline import parse_clauses, reconcile_requirements
 from .models import (CHECKLIST_SCHEMA, INTERVIEW_SCHEMA, InterviewPlan,
                      TenderChecklist)
 
@@ -33,6 +34,7 @@ class Coach:
     def __init__(self, guideline_text: str, backend):
         self.backend = backend
         self.system = SYSTEM_TEMPLATE.format(guideline=guideline_text)
+        self.clauses = parse_clauses(guideline_text)
 
     # ---- chat -----------------------------------------------------------
     def answer(self, history: list[dict]) -> Iterator[str]:
@@ -85,4 +87,7 @@ class Coach:
         data = self.backend.complete_json(self.system, prompt,
                                           CHECKLIST_SCHEMA, "tender_checklist",
                                           max_tokens=16000)
-        return TenderChecklist.from_dict(data)
+        checklist = TenderChecklist.from_dict(data)
+        checklist.requirements, checklist.unverified_refs = \
+            reconcile_requirements(checklist.requirements, self.clauses)
+        return checklist

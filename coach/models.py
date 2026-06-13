@@ -120,6 +120,9 @@ class RequirementRow:
 class TenderChecklist:
     tender_info: TenderInfo
     requirements: list[RequirementRow] = field(default_factory=list)
+    # Clause refs the model cited that are not in the guideline (filled in by
+    # reconciliation); empty when every ref was verified.
+    unverified_refs: list[str] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: dict) -> "TenderChecklist":

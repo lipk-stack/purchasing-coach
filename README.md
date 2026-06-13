@@ -8,7 +8,10 @@ procurement guideline in `.docx`) and lets you:
    buy, answer a short interview driven by the guideline, and get an Excel
    workbook (based on your tender template) with the tender information sheet
    filled in and a compliance tracker listing every applicable requirement
-   marked Mandatory/Optional.
+   marked Mandatory/Optional. Each row is grounded against the actual
+   guideline: section titles are taken from the real clause headings, rows
+   come out in guideline order, and any clause number the model cited that
+   isn't in the guideline is flagged for you to double-check.
 
 It is designed for locked-down corporate machines: it runs against a **local
 LLM** served by **LM Studio** or **Ollama** (auto-detected, no cloud account
@@ -103,6 +106,7 @@ Project layout:
 - `coach/backends.py` — LLM backends: OpenAI-compatible local servers
   (LM Studio/Ollama, stdlib `urllib` only) and optional Claude API
 - `coach/documents.py` — guideline loading (docx/md/txt/pdf → text)
+- `coach/guideline.py` — clause index + checklist reconciliation (grounding)
 - `coach/llm.py` — prompts + response parsing on top of a backend
 - `coach/models.py` — dataclass models + JSON schemas for structured output
 - `coach/tender.py` — interview flow

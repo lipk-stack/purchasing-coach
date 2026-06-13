@@ -2,6 +2,40 @@
 
 Reference this file at the start of each routine run.
 
+## Iteration 5 — 2026-06-13
+
+Guideline-grounded checklist (deterministic output fidelity):
+
+- **New `coach/guideline.py`**: `parse_clauses()` indexes the guideline's
+  numbered markdown headings (`### 5.6 Audits and Assessments`) into an
+  ordered `{ref: title}` map; `reconcile_requirements()` post-processes the
+  model's checklist before it is written — it canonicalises each row's
+  `section` to the real clause heading, normalises refs (`Clause 5.3` → `5.3`),
+  reorders rows into guideline order, drops exact-duplicate rows, and returns
+  the clause numbers the model cited that don't exist in the guideline.
+- **Why**: addresses the risk flagged in follow-ups 1/2 — small local models
+  paraphrase clause titles and occasionally invent clause numbers. This makes
+  the Excel deliverable trustworthy and consistent regardless of backend or
+  model size, and needs no live LLM to be valuable. The clause index is also
+  the building block for the per-section context filtering in follow-up 2.
+- **Surfaced everywhere**: `TenderChecklist.unverified_refs` field carries the
+  flagged refs; the CLI prints a "could not be matched … please verify" note,
+  the web UI `/api/tender/finish` returns `unverified` and the page shows it.
+- **Verified on the genuine docx**: 65 clauses parsed from the real Drive
+  guideline; reconciliation corrects titles, orders rows and flags a planted
+  hallucinated ref. Full end-to-end smoke test of the rebuilt .pyz (269 KB)
+  against a mock LM Studio server: tender start/finish + download, workbook
+  shows canonical headings, guideline order and the flagged row.
+- **Drive checked**: guideline + template unmodified since 2026-06-10 (verified
+  again this run) — no sample refresh needed.
+- **Live LLM still unavailable** (no local server, no API key in this env);
+  follow-ups 1 and 2 (live testing) remain blocked here.
+- Tests: 39 passing (+8: new `tests/test_guideline.py` covers parsing, ref
+  normalisation, numeric sort, title canonicalisation, dedupe and the
+  no-index no-op; `tests/test_tender.py` extended to assert reordering +
+  canonical titles + the unverified note through the full flow).
+- **main synced** after the green run (standing instruction).
+
 ## Iteration 4 — 2026-06-12
 
 Restart-interview control + first check-in to main:
@@ -115,17 +149,22 @@ Compliance Tracker) from the template, docx/md/txt loaders, offline tests.
 2. **Checklist size vs local context windows.** The full guideline rides in
    the system prompt (~7K tokens). Fine for 8K+ context models; if users load
    small-context models, add per-category section filtering before the
-   checklist call. Best done together with follow-up 1 so the effect on
-   requirement selection can actually be observed.
+   checklist call. The clause index from iteration 5 (`coach/guideline.py`,
+   `parse_clauses`) gives the heading structure to slice on; extend it to also
+   capture each clause's body text, then select relevant sections from the
+   interview answers and trim the system prompt for the checklist call. Best
+   done together with follow-up 1 so the effect on requirement selection can
+   actually be observed.
 3. **Drive round-trip.** Optionally upload generated checklists back to the
    "Purchasing Guideline" Drive folder after a tender run.
 4. **Guideline sync.** Drive docs last modified 2026-06-10 (verified
-   unchanged 2026-06-11). If they change, refresh `samples/guideline_text.md`
-   and rerun `scripts/make_samples.py`.
+   unchanged again 2026-06-13). If they change, refresh
+   `samples/guideline_text.md` and rerun `scripts/make_samples.py`.
 5. **Guideline docx binary.** `samples/XXEON_IT_Procurement_Guideline.docx`
    is still a reconstruction (same text as the Drive original, which is
-   unchanged). Only worth re-transferring if the docx parser ever misbehaves
-   on the real file.
+   unchanged). The docx parser handles it correctly — iteration 5 parsed 65
+   clauses cleanly from it. Only worth re-transferring if the parser ever
+   misbehaves on the real file.
 6. **Web UI polish (nice-to-have).** Markdown rendering done (3b), restart
    interview done (4). Remaining: check how the structured-output prompt
    behaves on small local models during the live LLM run (follow-up 1) —

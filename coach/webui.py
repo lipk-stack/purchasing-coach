@@ -48,6 +48,7 @@ class WebUI:
         self.generated.add(name)
         return {"file": name, "download": f"/api/download/{name}",
                 "count": len(checklist.requirements),
+                "unverified": checklist.unverified_refs,
                 "tender_info": checklist.tender_info.__dict__}
 
     def serve(self, port: int = 8765, open_browser: bool = True) -> None:
@@ -449,8 +450,14 @@ async function tenderInput(text) {
     });
     const data = await resp.json();
     if (!resp.ok) throw new Error(data.error || resp.status);
+    const unverified = (data.unverified || []).length
+        ? ` ${data.unverified.length} clause reference(s) could not be ` +
+          `matched to the guideline (${data.unverified.join(', ')}) — ` +
+          'please verify those rows.'
+        : '';
     note.textContent = `Done — ${data.count} requirements for ` +
-        `“${data.tender_info.purchase_item}”. Review both sheets before ` +
+        `“${data.tender_info.purchase_item}”.` + unverified +
+        ' Review both sheets before ' +
         'sending anything to vendors; the guideline itself must not be ' +
         'shared externally.';
     const a = document.createElement('a');
