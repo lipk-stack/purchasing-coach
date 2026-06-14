@@ -677,8 +677,10 @@ async function tenderInput(text) {
         : '';
     note.innerHTML = `Done — ${data.count} requirements for ` +
         `“${data.tender_info.purchase_item}”.` + addedCore + unverified +
-        ' Review both sheets before sending anything to vendors; the ' +
-        'guideline itself must not be shared externally.';
+        ' Vendors pick a Vendor Status (Compliant / Partially Compliant / ' +
+        'Non-Compliant / Not Applicable) from the dropdown and explain in ' +
+        'Vendor Remarks. Review both sheets before sending anything to ' +
+        'vendors; the guideline itself must not be shared externally.';
     const a = document.createElement('a');
     a.className = 'dl';
     a.href = data.download;

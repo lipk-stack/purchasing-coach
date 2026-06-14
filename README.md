@@ -9,7 +9,11 @@ procurement guideline in `.docx`) and lets you:
    workbook (based on your tender template) with the tender information sheet
    filled in and a compliance tracker listing every applicable requirement
    marked Mandatory/Optional, ready for the vendor to populate (Vendor Status
-   / Vendor Remarks columns) and submit for review and approval.
+   / Vendor Remarks columns) and submit for review and approval. The **Vendor
+   Status** column is a dropdown (*Compliant / Partially Compliant /
+   Non-Compliant / Not Applicable*) so submissions stay consistent and easy to
+   review, and the tracker header is frozen so it stays visible while scrolling
+   a long checklist.
 
    The checklist is **granular and derived from the guideline in detail**: the
    model decides which clauses apply to your purchase, then each selected

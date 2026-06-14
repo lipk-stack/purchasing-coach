@@ -2,6 +2,44 @@
 
 Reference this file at the start of each routine run.
 
+## Iteration 13 — 2026-06-14
+
+Made the Excel deliverable itself review-/approval-ready (the checklist is
+"populated by the vendor and submitted for review and approval" — this
+iteration improves that last mile, which was untouched since the granularity
+work):
+
+- **`coach/excel.py` — Vendor Status dropdown.** The `Vendor Status` column is
+  now a data-validation **list** over every written data row, constrained to a
+  fixed vocabulary `VENDOR_STATUS_OPTIONS` = *Compliant / Partially Compliant /
+  Non-Compliant / Not Applicable* (`allow_blank=True`, dropdown shown, with an
+  error + input prompt). Vendors pick rather than free-type, so a 150–200-row
+  submission stays consistent and the reviewer can filter/score against a known
+  set. Free-text justification still lives in the adjacent `Vendor Remarks`
+  column. No-op when the column or data rows are absent (`_add_status_dropdown`).
+- **Frozen header.** `freeze_panes` is set just below the tracker header so the
+  title + column headers stay visible while scrolling a long granular checklist.
+- **Coexists with the real template's Excel table.** Verified end-to-end on the
+  genuine `TENDER_TEMPLATE.xlsx` with a 202-row checklist (all parsed atomic
+  requirements): the `TenderRequirements` table extends to `A2:G204`, the
+  validation covers `F3:F204`, freeze is `A3`, and the workbook reloads cleanly
+  in openpyxl — no corruption from table + validation + freeze together. Same
+  result confirmed from the **bundled .pyz** (not just the source tree).
+- **Surfaced to the user:** CLI finish note (`coach/tender.py`) and web finish
+  note (`coach/webui.py`) now tell the user vendors pick a Vendor Status from
+  the dropdown and explain in Vendor Remarks. README updated.
+- Tests: **67 passing** (+2: dropdown vocabulary + sqref + freeze on the real
+  template, and dropdown present on the no-template path in `test_excel.py`).
+  .pyz rebuilt (279 KB) and confirmed to bundle + run the new logic.
+- **Drive checked:** guideline (`XXEON_IT_Procurement_Guideline.docx`) and
+  template (`TENDER_TEMPLATE.xlsx`) both still `modifiedTime 2026-06-10T13:05:11Z`
+  (verified this run) — no sample refresh needed.
+- **Live LLM still unavailable** in this sandbox (no API key; LM Studio/Ollama
+  localhost not reachable from the container). This layer is deterministic and
+  verified on the real template, so it's valuable regardless of backend;
+  follow-up 1's live quality review stays open.
+- **main synced** after the green run (standing instruction).
+
 ## Iteration 12 — 2026-06-14
 
 Second user run: LM Studio still failed, but the cause moved server-side and

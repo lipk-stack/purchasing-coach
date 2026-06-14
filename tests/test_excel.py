@@ -1,6 +1,6 @@
 from openpyxl import load_workbook
 
-from coach.excel import write_checklist
+from coach.excel import VENDOR_STATUS_OPTIONS, write_checklist
 from coach.models import RequirementRow, TenderInfo
 
 INFO = TenderInfo(
@@ -49,3 +49,38 @@ def test_write_without_template(tmp_path):
     wb = load_workbook(out)
     assert "Tender Information" in wb.sheetnames
     assert "Compliance Tracker" in wb.sheetnames
+
+
+def _status_column_letter(tracker):
+    for row in tracker.iter_rows(max_row=20):
+        for cell in row:
+            if cell.value and str(cell.value).strip() == "Vendor Status":
+                return cell.column_letter, cell.row
+    raise AssertionError("Vendor Status header not found")
+
+
+def test_vendor_status_dropdown_and_freeze(samples, tmp_path):
+    out = write_checklist(INFO, ROWS, tmp_path / "dv.xlsx", samples["template"])
+    wb = load_workbook(out)
+    tracker = wb["Compliance Tracker"]
+
+    letter, header_row = _status_column_letter(tracker)
+    # A list validation covers the written Vendor Status cells with the
+    # standard compliance vocabulary.
+    last_row = header_row + len(ROWS)
+    target = f"{letter}{header_row + 1}:{letter}{last_row}"
+    dv = next((d for d in tracker.data_validations.dataValidation
+               if d.type == "list" and target in str(d.sqref)), None)
+    assert dv is not None
+    for option in VENDOR_STATUS_OPTIONS:
+        assert option in dv.formula1
+    # Header stays visible while scrolling the checklist.
+    assert tracker.freeze_panes == f"A{header_row + 1}"
+
+
+def test_status_dropdown_without_template(tmp_path):
+    out = write_checklist(INFO, ROWS, tmp_path / "dv_blank.xlsx", None)
+    wb = load_workbook(out)
+    tracker = wb["Compliance Tracker"]
+    dvs = list(tracker.data_validations.dataValidation)
+    assert any(d.type == "list" for d in dvs)

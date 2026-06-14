@@ -49,7 +49,9 @@ def run_tender_flow(coach: Coach, template_path: str | Path | None,
             "those rows.")
     say("Review the 'Tender Information' and 'Compliance Tracker' sheets "
         "before sending anything to vendors — the guideline itself must not "
-        "be shared externally.")
+        "be shared externally. Vendors pick a Vendor Status (Compliant / "
+        "Partially Compliant / Non-Compliant / Not Applicable) from the "
+        "dropdown and explain in Vendor Remarks, then return it for review.")
     return out_path
 
 

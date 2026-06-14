@@ -5,6 +5,7 @@ from pathlib import Path
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.datavalidation import DataValidation
 
 from .models import RequirementRow, TenderInfo
 
@@ -12,6 +13,18 @@ INFO_SHEET = "Tender Information"
 TRACKER_SHEET = "Compliance Tracker"
 TRACKER_HEADERS = ["Seq", "Ref", "Section", "Requirement", "M/O",
                    "Vendor Status", "Vendor Remarks"]
+
+# Standardised values the vendor/service provider picks from when populating
+# the "Vendor Status" column. A fixed vocabulary (rather than free text) keeps
+# the submitted checklist consistent and lets the reviewer filter/score it
+# during review and approval. Free-text justification still goes in the
+# adjacent "Vendor Remarks" column.
+VENDOR_STATUS_OPTIONS = [
+    "Compliant",
+    "Partially Compliant",
+    "Non-Compliant",
+    "Not Applicable",
+]
 
 
 def write_checklist(
@@ -82,7 +95,36 @@ def _fill_tracker_sheet(wb, requirements: list[RequirementRow]) -> None:
                 cell.alignment = Alignment(vertical="top", wrap_text=True)
         row += 1
 
-    _extend_table(ws, header_row, row - 1)
+    last_row = row - 1
+    _extend_table(ws, header_row, last_row)
+    _add_status_dropdown(ws, header_row, last_row, col)
+    # Keep the header (and the tender title above it) visible while the
+    # reviewer scrolls a long, granular checklist.
+    if last_row > header_row:
+        ws.freeze_panes = ws.cell(row=header_row + 1, column=1)
+
+
+def _add_status_dropdown(ws, header_row: int, last_row: int,
+                         col: dict[str, int]) -> None:
+    """Constrain the Vendor Status column to the standard compliance values.
+
+    The vendor populates this column with a dropdown choice, so submissions are
+    consistent and the reviewer can filter and approve against a fixed
+    vocabulary. No-op when the column is absent or there are no data rows.
+    """
+    status_col = col.get("Vendor Status")
+    if not status_col or last_row <= header_row:
+        return
+    letter = get_column_letter(status_col)
+    options = ",".join(VENDOR_STATUS_OPTIONS)
+    dv = DataValidation(type="list", formula1=f'"{options}"',
+                        allow_blank=True, showDropDown=False)
+    dv.error = "Pick one of the standard compliance statuses."
+    dv.errorTitle = "Invalid status"
+    dv.prompt = "Select the vendor's compliance status for this requirement."
+    dv.promptTitle = "Vendor Status"
+    dv.add(f"{letter}{header_row + 1}:{letter}{last_row}")
+    ws.add_data_validation(dv)
 
 
 def _find_sheet(wb, name: str):
