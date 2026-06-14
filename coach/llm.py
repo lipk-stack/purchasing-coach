@@ -2,7 +2,8 @@
 
 from collections.abc import Iterator
 
-from .guideline import (coverage_questions, expand_requirements, parse_clauses,
+from .guideline import (coverage_questions, ensure_core_sections,
+                       expand_requirements, parse_clauses,
                        parse_clause_requirements, reconcile_requirements)
 from .models import (CHECKLIST_SCHEMA, INTERVIEW_SCHEMA, InterviewPlan,
                      InterviewQuestion, TenderChecklist)
@@ -128,4 +129,8 @@ class Coach:
         # rather than one paraphrased line per clause.
         checklist.requirements = expand_requirements(
             checklist.requirements, self.clause_reqs)
+        # Safety net: always include the cross-cutting compliance sections so
+        # an under-selecting model can't drop them from the deliverable.
+        checklist.requirements, checklist.added_core_sections = \
+            ensure_core_sections(checklist.requirements, self.clause_reqs)
         return checklist

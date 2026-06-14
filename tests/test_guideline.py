@@ -1,9 +1,10 @@
 """Clause indexing + checklist reconciliation (deterministic, no LLM)."""
 
 from coach.guideline import (classify_obligation, clause_sort_key,
-                            coverage_questions, expand_requirements,
-                            normalize_ref, parse_clause_requirements,
-                            parse_clauses, reconcile_requirements)
+                            coverage_questions, ensure_core_sections,
+                            expand_requirements, normalize_ref,
+                            parse_clause_requirements, parse_clauses,
+                            reconcile_requirements)
 from coach.models import RequirementRow
 
 GUIDELINE = """\
@@ -139,6 +140,70 @@ def test_expand_requirements_keeps_unparsed_rows():
 def test_expand_requirements_noop_without_body():
     rows = [RequirementRow("8.4", "Warranty", "Declare dates.", "M")]
     assert expand_requirements(rows, {}) == rows
+
+
+# ---- core-section safety net ---------------------------------------------
+
+CORE_GUIDELINE = """\
+## 4 CONTRACT REQUIREMENTS
+
+### 4.1 Standard Contract Terms
+
+The vendor must define deliverables.
+
+## 5 INFORMATION SECURITY CONSIDERATIONS
+
+### 5.6 Audits and Assessments
+
+Annual third-party security audits are mandatory.
+
+## 8 HARDWARE REQUIREMENTS
+
+### 8.4 Warranty and Replacement Policies
+
+Minimum warranty periods must be specified.
+
+## 11 COMPLIANCE AND RISK MANAGEMENT
+
+### 11.1 Regulatory Compliance
+
+The vendor must comply with applicable regulations.
+"""
+
+
+def test_ensure_core_sections_adds_missing_cross_cutting_clauses():
+    clause_reqs = parse_clause_requirements(CORE_GUIDELINE)
+    # Model only selected a hardware clause and missed every core section.
+    rows = [RequirementRow("8.4", "Warranty and Replacement Policies",
+                           "Minimum warranty periods must be specified.", "M")]
+    merged, added = ensure_core_sections(rows, clause_reqs)
+    refs = [r.ref for r in merged]
+    # Core sections 4, 5, 11 are folded in, in guideline order, hardware kept.
+    assert refs == ["4.1", "5.6", "8.4", "11.1"]
+    assert added == ["4", "5", "11"]
+
+
+def test_ensure_core_sections_no_duplicates_when_already_present():
+    clause_reqs = parse_clause_requirements(CORE_GUIDELINE)
+    rows = [
+        RequirementRow("4.1", "Standard Contract Terms",
+                       "The vendor must define deliverables.", "M"),
+        RequirementRow("5.6", "Audits and Assessments",
+                       "Annual third-party security audits are mandatory.", "M"),
+        RequirementRow("11.1", "Regulatory Compliance",
+                       "The vendor must comply with applicable regulations.",
+                       "M"),
+    ]
+    merged, added = ensure_core_sections(rows, clause_reqs)
+    assert [r.ref for r in merged] == ["4.1", "5.6", "11.1"]
+    assert added == []  # nothing had to be added
+
+
+def test_ensure_core_sections_noop_without_body():
+    rows = [RequirementRow("8.4", "Warranty", "Declare dates.", "M")]
+    merged, added = ensure_core_sections(rows, {})
+    assert merged == rows
+    assert added == []
 
 
 def test_coverage_questions_gated_on_present_sections():

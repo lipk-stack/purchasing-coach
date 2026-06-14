@@ -2,6 +2,45 @@
 
 Reference this file at the start of each routine run.
 
+## Iteration 8 — 2026-06-14
+
+Deterministic safety net for cross-cutting compliance sections (follow-up 1 —
+the part doable without a live LLM; guards the "full set of relevant compliance
+list" goal against model under-selection):
+
+- **`coach/guideline.py` — `ensure_core_sections()` + `CORE_SECTIONS`:** after
+  the model's selections are reconciled and expanded, this always folds in the
+  atomic requirements of the sections that apply to *every* procurement —
+  **4 Contract, 5 Information Security, 11 Compliance & Risk** — that the
+  expanded rows don't already cover, re-sorted into guideline order. Returns the
+  merged rows plus the section roots it had to add. Gated on the guideline
+  actually containing the section (unstructured guideline adds nothing), de-dupes
+  against rows already present, and is a no-op when nothing was added.
+- **`coach/llm.py`:** `build_checklist` calls `ensure_core_sections` as the last
+  step (after `expand_requirements`) and records the added roots on the new
+  `TenderChecklist.added_core_sections` field (`coach/models.py`).
+- **Surfaced to the user (transparency for a compliance deliverable):** the CLI
+  prints "core compliance section(s) X were added automatically …" and the web
+  UI shows the same line in the finish note (`coach/tender.py`,
+  `coach/webui.py` return `added_core` from `/api/tender/finish`).
+- **Verified on the genuine guideline:** a model that selects ONLY one hardware
+  clause (8.4) still yields a **92-row** checklist — Contract 33, Information
+  Security 36, Compliance & Risk 22, plus the hardware row — i.e. the compliance
+  list can no longer collapse to a near-empty deliverable on a weak model.
+- **Drive checked**: guideline (`XXEON_IT_Procurement_Guideline.docx`) and
+  template (`TENDER_TEMPLATE.xlsx`) both still `modifiedTime 2026-06-10T13:05:11Z`
+  — unchanged since iter 1, no sample refresh needed. The "Purchasing Coach –
+  Notes" Doc in the folder is still the iter-2 snapshot (Drive tooling can't
+  update it; this NOTES.md remains canonical — follow-up 7).
+- **Live LLM still unavailable** in this sandbox (no local server, no API key —
+  checked again); the whole safety-net layer is deterministic and was verified
+  on the real guideline, so it's valuable regardless of backend. The remaining
+  *live-review* part of follow-up 1 stays open.
+- Tests: **53 passing** (+5: `ensure_core_sections` add/no-dup/no-op in
+  `test_guideline.py`; full-flow safety-net add + CLI note in `test_tender.py`).
+  README updated. .pyz rebuilt (276 KB) and confirmed to bundle the new function.
+- **main synced** after the green run (standing instruction).
+
 ## Iteration 7 — 2026-06-13
 
 Granular, guideline-derived checklist + reverse-prompting coverage (user
@@ -248,9 +287,12 @@ Compliance Tracker) from the template, docx/md/txt loaders, offline tests.
    needs a live review. Next run: test a real `/tender` session (one hardware
    + one SaaS item) against LM Studio with a ~7B instruct model and check the
    model picks the right clauses (it can cite whole sections like "5"); under-
-   selection now matters more than paraphrase quality. Consider a deterministic
-   safety net that always includes the cross-cutting sections (4 Contract, 5
-   Information Security, 11 Compliance & Risk) regardless of model output.
+   selection now matters more than paraphrase quality. **The deterministic
+   safety net is now implemented (iter 8):** sections 4/5/11 are always folded
+   in, so the live review is now mainly about the *item-specific* sections
+   (6 interoperability, 7 support, 8 hardware, 9 software, 12 post-impl) the
+   model must still select correctly. Consider widening `CORE_SECTIONS` if the
+   live run shows 7 (support) is also near-universal.
 2. **Checklist size vs local context windows.** The full guideline still rides
    in the system prompt (~7K tokens) — fine for 8K+ context models. The clause
    *body* index now exists (`parse_clause_requirements`), so the remaining work

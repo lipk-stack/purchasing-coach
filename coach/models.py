@@ -123,6 +123,10 @@ class TenderChecklist:
     # Clause refs the model cited that are not in the guideline (filled in by
     # reconciliation); empty when every ref was verified.
     unverified_refs: list[str] = field(default_factory=list)
+    # Cross-cutting section roots the deterministic safety net had to add
+    # because the model didn't select them (e.g. ['4', '11']); empty when the
+    # model already covered every core section.
+    added_core_sections: list[str] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: dict) -> "TenderChecklist":

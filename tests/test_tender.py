@@ -167,6 +167,67 @@ def test_interview_adds_guideline_coverage_questions():
     assert "personal data" in text
 
 
+SAFETYNET_GUIDELINE = """\
+## 4 CONTRACT REQUIREMENTS
+
+### 4.1 Standard Contract Terms
+
+The vendor must define all deliverables and acceptance criteria.
+
+## 5 INFORMATION SECURITY CONSIDERATIONS
+
+### 5.6 Audits and Assessments
+
+Annual third-party security audits are mandatory.
+
+## 8 HARDWARE REQUIREMENTS
+
+### 8.4 Warranty and Replacement Policies
+
+Minimum warranty periods must be specified.
+
+## 11 COMPLIANCE AND RISK MANAGEMENT
+
+### 11.1 Regulatory Compliance
+
+The vendor must comply with all applicable regulations.
+"""
+
+
+class UnderSelectingBackend(FakeBackend):
+    # A small model that only picks the obvious hardware clause and drops the
+    # cross-cutting compliance sections — the safety net must add them back.
+    def complete_json(self, system, prompt, schema, schema_name,
+                      max_tokens=8192):
+        if schema_name == "interview_plan":
+            return PLAN
+        return {
+            "tender_info": CHECKLIST["tender_info"],
+            "requirements": [
+                {"ref": "8.4", "section": "Warranty",
+                 "requirement": "Specify warranty periods.", "mandatory": "M"},
+            ],
+        }
+
+
+def test_safety_net_adds_core_sections_when_model_under_selects(tmp_path):
+    coach = Coach(SAFETYNET_GUIDELINE, UnderSelectingBackend())
+    checklist = coach.build_checklist("Firewall appliances", [("q", "a")])
+    refs = [r.ref for r in checklist.requirements]
+    # Core sections 4, 5 and 11 are folded in despite the model only naming 8.4.
+    assert refs == ["4.1", "5.6", "8.4", "11.1"]
+    assert checklist.added_core_sections == ["4", "5", "11"]
+
+
+def test_safety_net_note_surfaced_in_tender_flow(tmp_path):
+    coach = Coach(SAFETYNET_GUIDELINE, UnderSelectingBackend())
+    notes: list[str] = []
+    run_tender_flow(coach, None, tmp_path,
+                    ask=lambda prompt: "Firewall appliances",
+                    say=lambda *a: notes.append(" ".join(map(str, a))))
+    assert any("added automatically" in n and "4, 5, 11" in n for n in notes)
+
+
 def test_tender_flow_cancels_on_empty_item(tmp_path):
     coach = make_coach()
     out = run_tender_flow(coach, None, tmp_path,

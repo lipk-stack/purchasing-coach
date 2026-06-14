@@ -52,6 +52,7 @@ class WebUI:
         return {"file": name, "download": f"/api/download/{name}",
                 "count": len(checklist.requirements),
                 "unverified": checklist.unverified_refs,
+                "added_core": checklist.added_core_sections,
                 "tender_info": checklist.tender_info.__dict__}
 
     def serve(self, port: int = 8765, open_browser: bool = True) -> None:
@@ -669,8 +670,12 @@ async function tenderInput(text) {
           `reference(s) could not be matched to the guideline ` +
           `(${data.unverified.join(', ')}) — please verify those rows.</span>`
         : '';
+    const addedCore = (data.added_core || []).length
+        ? ` Core compliance section(s) ${data.added_core.join(', ')} were ` +
+          `added automatically to ensure full coverage.`
+        : '';
     note.innerHTML = `Done — ${data.count} requirements for ` +
-        `“${data.tender_info.purchase_item}”.` + unverified +
+        `“${data.tender_info.purchase_item}”.` + addedCore + unverified +
         ' Review both sheets before sending anything to vendors; the ' +
         'guideline itself must not be shared externally.';
     const a = document.createElement('a');

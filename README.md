@@ -21,6 +21,10 @@ procurement guideline in `.docx`) and lets you:
    (must/shall → Mandatory, should/recommended → Optional). Rows come out in
    guideline order with the real clause headings, and any clause number the
    model cited that isn't in the guideline is flagged for you to double-check.
+   A **safety net** always folds in the cross-cutting compliance sections that
+   apply to every procurement — Contract (4), Information Security (5) and
+   Compliance & Risk (11) — so they can never be dropped even if the model
+   under-selects; you're told when this happens so you can review applicability.
 
    The interview itself is **reverse-prompted from the guideline**: alongside
    the model's questions it always probes applicability of every major section

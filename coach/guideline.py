@@ -200,6 +200,52 @@ def expand_requirements(
     return out
 
 
+# Sections that apply to essentially every procurement regardless of the item
+# type — contract terms, information security and compliance/risk management.
+# A compliance deliverable must never silently drop these, so they are always
+# folded into the checklist even when the model fails to select them (small
+# local models under-select). Gated on the guideline actually containing the
+# section, so an unstructured guideline adds nothing.
+CORE_SECTIONS = ("4", "5", "11")
+
+
+def ensure_core_sections(
+    rows: list[RequirementRow],
+    clause_reqs: dict[str, list[RequirementRow]],
+    core: tuple[str, ...] = CORE_SECTIONS,
+) -> tuple[list[RequirementRow], list[str]]:
+    """Guarantee the cross-cutting core sections are present in the checklist.
+
+    The model selects the item-specific clauses; this deterministic safety net
+    adds the atomic requirements of every core section the guideline contains
+    that ``rows`` don't already cover, then returns the merged set in guideline
+    order together with the section roots that had to be added (so the user can
+    be told the safety net fired). With no parsed body (e.g. an unstructured
+    guideline) nothing is added and ``rows`` is returned unchanged.
+    """
+    if not clause_reqs:
+        return rows, []
+
+    out = list(rows)
+    seen = {(r.ref, r.requirement.strip().lower()) for r in out}
+    present_roots = {normalize_ref(r.ref).split(".")[0] for r in rows}
+    added_roots: list[str] = []
+    for cref, reqs in clause_reqs.items():
+        root = cref.split(".")[0]
+        if root not in core:
+            continue
+        if root not in present_roots and root not in added_roots and reqs:
+            added_roots.append(root)
+        for r in reqs:
+            key = (r.ref, r.requirement.strip().lower())
+            if key not in seen:
+                seen.add(key)
+                out.append(RequirementRow(r.ref, r.section, r.requirement,
+                                          r.mandatory))
+    out.sort(key=lambda r: clause_sort_key(r.ref))
+    return out, sorted(added_roots, key=clause_sort_key)
+
+
 # Applicability questions derived from the guideline's top-level sections. Each
 # entry is (section root that must exist, dedupe keywords, question). They are
 # merged into the interview so the reverse-prompting covers every major part of
