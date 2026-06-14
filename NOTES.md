@@ -2,6 +2,35 @@
 
 Reference this file at the start of each routine run.
 
+## Iteration 12 — 2026-06-14
+
+Second user run: LM Studio still failed, but the cause moved server-side and
+the app got hardened against it:
+
+- **Symptom (LM Studio server log):** `clip_init: failed to load model
+  '…mmproj-gemma-4-12B-it-QAT-BF16.gguf': load_hparams: unknown projector type:
+  gemma4uv` → `Failed to load model`. `gemma-4-12b-it-QAT` is a **multimodal
+  (vision) model**; the user's llama.cpp runtime is too old to load its vision
+  projector, so LM Studio can't load it at all. **Not an app bug** — no code can
+  load an unloadable model.
+- **App hardening (`coach/backends.py`):**
+  - `_lmstudio_model` now **ranks** candidates `(not_loaded, is_vision)` instead
+    of taking the first: already-loaded beats not-loaded, and a plain text
+    `llm` beats a vision `vlm`. So when a text model is available the app skips
+    fragile vision models like gemma-4-12b entirely — this app never uses
+    vision. A loaded vlm still beats an unloaded llm (it already works).
+  - The "Failed to load" hint now also names the likely cause (new/multimodal
+    model vs. an old runtime) and suggests updating LM Studio's runtime or
+    picking a text model — the memory-only wording was off-target for this case.
+- **User guidance given:** load a text/instruct model (Qwen2.5-7B-Instruct,
+  Llama-3.1-8B-Instruct) — the app auto-picks it; or update LM Studio's
+  runtime to one that supports gemma-4 vision; or `--llm-model` to force a
+  specific id.
+- Tests: **65 passing** (+2: prefer-text-over-vision, loaded-vision-beats-
+  unloaded-text in `test_backends.py`). .pyz rebuilt (278 KB), fix confirmed
+  bundled.
+- **main synced** after the green run.
+
 ## Iteration 11 — 2026-06-14
 
 Bug fix from the **first real user run against LM Studio** (closes the

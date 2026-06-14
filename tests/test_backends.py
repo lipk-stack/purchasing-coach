@@ -104,6 +104,30 @@ def test_first_model_falls_back_to_first_chat_when_none_loaded(monkeypatch):
     assert backend.model == "qwen2.5-7b-instruct"
 
 
+def test_first_model_prefers_text_over_vision_when_none_loaded(monkeypatch):
+    # A text-only app should skip a vision model (vlm) like gemma-4-12b — whose
+    # vision projector often fails to load — when a plain text model exists.
+    native = json.dumps({"data": [
+        {"id": "google/gemma-4-12b-qat", "type": "vlm", "state": "not-loaded"},
+        {"id": "qwen2.5-7b-instruct", "type": "llm", "state": "not-loaded"},
+    ]}).encode()
+    _make_backend(monkeypatch, [native])
+    backend = OpenAICompatBackend("http://localhost:1234/v1")
+    assert backend.model == "qwen2.5-7b-instruct"
+
+
+def test_first_model_loaded_vision_beats_unloaded_text(monkeypatch):
+    # A vision model that is already loaded works for text, so it still beats a
+    # text model that would need a risky just-in-time load.
+    native = json.dumps({"data": [
+        {"id": "qwen2.5-7b-instruct", "type": "llm", "state": "not-loaded"},
+        {"id": "gemma-3-vision", "type": "vlm", "state": "loaded"},
+    ]}).encode()
+    _make_backend(monkeypatch, [native])
+    backend = OpenAICompatBackend("http://localhost:1234/v1")
+    assert backend.model == "gemma-3-vision"
+
+
 def test_first_model_falls_back_to_v1_models_without_native_api(monkeypatch):
     import urllib.error
 

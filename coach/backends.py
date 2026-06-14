@@ -139,9 +139,16 @@ class OpenAICompatBackend:
             return None
         chat = [m for m in (body.get("data") or [])
                 if m.get("id") and m.get("type") in (None, "llm", "vlm")]
-        for model in chat:  # an already-loaded chat model is the best choice
-            if model.get("state") == "loaded":
-                return model["id"]
+        # Rank candidates so we pick the safest model for a text-only app:
+        # already-loaded beats not-loaded (no risky just-in-time load), and a
+        # plain text model beats a vision model (vlm projectors are a common
+        # load-failure point and we never use the vision capability anyway).
+        def rank(model: dict) -> tuple[int, int]:
+            not_loaded = 0 if model.get("state") == "loaded" else 1
+            is_vision = 1 if model.get("type") == "vlm" else 0
+            return (not_loaded, is_vision)
+
+        chat.sort(key=rank)
         return chat[0]["id"] if chat else None
 
     def list_models(self) -> list[str]:
@@ -172,8 +179,11 @@ class OpenAICompatBackend:
             hint = ""
             if "load model" in detail.lower():
                 hint = (f" — the server could not load model '{self.model}'. "
-                        "Load a model in LM Studio (or free up memory), then "
-                        "retry, or pass --llm-model with one that is loaded.")
+                        "Load a working model in LM Studio (a text/instruct "
+                        "model is safest), or pass --llm-model with one that "
+                        "loads. If it is a new or multimodal model, your "
+                        "LM Studio runtime may be too old to load it — update "
+                        "LM Studio's runtime or pick a different model.")
             raise BackendError(
                 f"{self.base_url}{path} returned {exc.code}: {detail}{hint}"
             ) from exc
