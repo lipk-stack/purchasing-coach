@@ -80,12 +80,39 @@ def _make_backend(monkeypatch, responses):
     return calls
 
 
-def test_first_model_autodetected(monkeypatch):
-    _make_backend(monkeypatch, [
-        json.dumps({"data": [{"id": "qwen2.5-7b-instruct"}]}).encode(),
-    ])
+def test_first_model_prefers_loaded_chat_model(monkeypatch):
+    # LM Studio's native /api/v0/models lists every downloaded model with its
+    # load state and type. We must pick the one already loaded — not the first
+    # listed (which here would fail to load) and not the embeddings model.
+    native = json.dumps({"data": [
+        {"id": "google/gemma-4-12b-qat", "type": "llm", "state": "not-loaded"},
+        {"id": "text-embedding-nomic", "type": "embeddings", "state": "loaded"},
+        {"id": "qwen2.5-7b-instruct", "type": "llm", "state": "loaded"},
+    ]}).encode()
+    _make_backend(monkeypatch, [native])
     backend = OpenAICompatBackend("http://localhost:1234/v1")
     assert backend.model == "qwen2.5-7b-instruct"
+
+
+def test_first_model_falls_back_to_first_chat_when_none_loaded(monkeypatch):
+    native = json.dumps({"data": [
+        {"id": "text-embedding-nomic", "type": "embeddings", "state": "loaded"},
+        {"id": "qwen2.5-7b-instruct", "type": "llm", "state": "not-loaded"},
+    ]}).encode()
+    _make_backend(monkeypatch, [native])
+    backend = OpenAICompatBackend("http://localhost:1234/v1")
+    assert backend.model == "qwen2.5-7b-instruct"
+
+
+def test_first_model_falls_back_to_v1_models_without_native_api(monkeypatch):
+    import urllib.error
+
+    # Non-LM-Studio server: /api/v0/models is absent, so use /v1/models[0].
+    no_native = urllib.error.URLError("not found")
+    v1 = json.dumps({"data": [{"id": "llama3.1:8b"}]}).encode()
+    _make_backend(monkeypatch, [no_native, v1])
+    backend = OpenAICompatBackend("http://localhost:11434/v1")
+    assert backend.model == "llama3.1:8b"
 
 
 def test_stream_chat_parses_sse(monkeypatch):

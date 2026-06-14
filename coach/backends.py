@@ -102,6 +102,13 @@ class OpenAICompatBackend:
 
     # -- helpers -----------------------------------------------------------
     def _first_model(self) -> str:
+        # LM Studio's OpenAI /v1/models lists every *downloaded* model, so
+        # models[0] may be one that isn't loaded and fails to just-in-time load
+        # on the first request ("Failed to load model"). Prefer a model the
+        # server reports as already loaded (and a chat model, not embeddings).
+        loaded = self._lmstudio_model()
+        if loaded:
+            return loaded
         models = self.list_models()
         if not models:
             raise BackendError(
@@ -109,6 +116,33 @@ class OpenAICompatBackend:
                 "LM Studio / pull one with 'ollama pull <model>' first, or "
                 "pass --llm-model.")
         return models[0]
+
+    def _lmstudio_model(self) -> str | None:
+        """Pick a usable chat model from LM Studio's native REST API, if present.
+
+        LM Studio serves an enhanced API at ``/api/v0`` that, unlike the
+        OpenAI-compatible ``/v1/models``, reports each model's load ``state``
+        ("loaded"/"not-loaded") and ``type`` ("llm"/"vlm"/"embeddings"/...).
+        We prefer a model that is already loaded so we never ask the server to
+        load one that may fail, and we skip embeddings models that can't chat.
+        Returns ``None`` for servers without this endpoint (Ollama, plain
+        OpenAI-compatible servers) so the caller falls back to ``/v1/models``.
+        """
+        root = self.base_url[:-3] if self.base_url.endswith("/v1") \
+            else self.base_url
+        req = urllib.request.Request(root + "/api/v0/models",
+                                     headers=self._headers())
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                body = json.load(resp)
+        except (urllib.error.URLError, OSError, json.JSONDecodeError):
+            return None
+        chat = [m for m in (body.get("data") or [])
+                if m.get("id") and m.get("type") in (None, "llm", "vlm")]
+        for model in chat:  # an already-loaded chat model is the best choice
+            if model.get("state") == "loaded":
+                return model["id"]
+        return chat[0]["id"] if chat else None
 
     def list_models(self) -> list[str]:
         req = urllib.request.Request(self.base_url + "/models",
@@ -135,8 +169,14 @@ class OpenAICompatBackend:
             return urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT)
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")[:500]
+            hint = ""
+            if "load model" in detail.lower():
+                hint = (f" — the server could not load model '{self.model}'. "
+                        "Load a model in LM Studio (or free up memory), then "
+                        "retry, or pass --llm-model with one that is loaded.")
             raise BackendError(
-                f"{self.base_url}{path} returned {exc.code}: {detail}") from exc
+                f"{self.base_url}{path} returned {exc.code}: {detail}{hint}"
+            ) from exc
         except (urllib.error.URLError, OSError) as exc:
             raise BackendError(f"cannot reach {self.base_url}: {exc}") from exc
 

@@ -2,6 +2,42 @@
 
 Reference this file at the start of each routine run.
 
+## Iteration 11 — 2026-06-14
+
+Bug fix from the **first real user run against LM Studio** (closes the
+practical side of follow-ups 1/10 — the app finally ran against the user's own
+local model and surfaced a model-selection bug):
+
+- **Symptom:** chatting returned `http://localhost:1234/v1/chat/completions
+  returned 400: … "Failed to load model 'google/gemma-4-12b-qat'"`. The user
+  had a *different* model loaded; the app picked an unloaded one.
+- **Root cause:** LM Studio's OpenAI-compatible `/v1/models` lists **every
+  downloaded model**, not just the loaded one(s). `_first_model` took
+  `models[0]`, so it sent a model id LM Studio then tried to just-in-time load
+  — and that one failed (memory/incompatible runtime), even though a usable
+  model was already loaded.
+- **Fix (`coach/backends.py`):** new `_lmstudio_model()` queries LM Studio's
+  **native** `/api/v0/models` endpoint (host root, not `/v1`), which reports
+  each model's `state` and `type`. `_first_model` now prefers an
+  already-**loaded** chat model (`state == "loaded"`, `type` llm/vlm), so we
+  never ask the server to load a model that might fail, and we skip
+  **embeddings** models that can't chat. Returns `None` on servers without that
+  endpoint (Ollama, plain OpenAI-compatible) → graceful fallback to
+  `/v1/models[0]`, unchanged behaviour there.
+- **Also:** when a chat request still 400s with a "load model" error, the
+  `BackendError` now appends an actionable hint (load a model / free memory /
+  pass `--llm-model`) instead of just the raw server JSON.
+- Tests: **63 passing** (+2 net: prefer-loaded, skip-embeddings, and
+  no-native-API fallback in `test_backends.py`; `test_local_server.py` mock now
+  404s `/api/v0/models` to exercise the fallback path cleanly). .pyz rebuilt
+  (278 KB) and confirmed to bundle the fix.
+- **main synced** after the green run (standing instruction).
+- **Follow-up:** the user should re-run chat — it will now pick whatever model
+  they have loaded in LM Studio. If they specifically want `gemma-4-12b-qat`,
+  it needs to load successfully in LM Studio first (it was failing to load
+  server-side; likely RAM/VRAM or runtime). `--llm-model` still forces a
+  specific id.
+
 ## Iteration 10 — 2026-06-14
 
 Closed the last reverse-prompting coverage gap so the interview now covers

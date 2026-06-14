@@ -27,6 +27,12 @@ class MockLMStudio(BaseHTTPRequestHandler):
         pass
 
     def do_GET(self):
+        # The backend probes LM Studio's native endpoint first; this mock only
+        # speaks the OpenAI-compatible API, so it 404s there and the backend
+        # falls back to /v1/models — exactly the Ollama/plain-server path.
+        if self.path == "/api/v0/models":
+            self.send_error(404)
+            return
         assert self.path == "/v1/models"
         self._json({"data": [{"id": "test-model-7b"}]})
 
