@@ -671,8 +671,9 @@ async function tenderInput(text) {
           `(${data.unverified.join(', ')}) — please verify those rows.</span>`
         : '';
     const addedCore = (data.added_core || []).length
-        ? ` Core compliance section(s) ${data.added_core.join(', ')} were ` +
-          `added automatically to ensure full coverage.`
+        ? ` Guideline section(s) ${data.added_core.join(', ')} were ` +
+          `added automatically to ensure full coverage (cross-cutting ` +
+          `compliance plus sections your answers flagged as relevant).`
         : '';
     note.innerHTML = `Done — ${data.count} requirements for ` +
         `“${data.tender_info.purchase_item}”.` + addedCore + unverified +

@@ -31,7 +31,13 @@ procurement guideline in `.docx`) and lets you:
    present (hardware, software/licensing, cloud/SaaS hosting, personal/payment
    data, cybersecurity assessments, integration/SSO, support level, contract
    duration, deployment model) so the right sections — and therefore the full
-   set of relevant requirements — make it into the checklist.
+   set of relevant requirements — make it into the checklist. **Your answers
+   drive section inclusion directly:** if you say the purchase includes
+   hardware, integration or support, that whole guideline section (8, 6, 7) is
+   pulled into the checklist deterministically — even on a weak local model
+   that didn't select it — while a clear "no" keeps an irrelevant section out.
+   This means the compliance list reflects what you told the interview, not
+   just what the model happened to pick.
 
 It is designed for locked-down corporate machines: it runs against a **local
 LLM** served by **LM Studio** or **Ollama** (auto-detected, no cloud account

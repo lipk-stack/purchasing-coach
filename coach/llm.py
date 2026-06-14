@@ -2,9 +2,10 @@
 
 from collections.abc import Iterator
 
-from .guideline import (coverage_questions, ensure_core_sections,
-                       expand_requirements, parse_clauses,
-                       parse_clause_requirements, reconcile_requirements)
+from .guideline import (CORE_SECTIONS, coverage_questions,
+                       ensure_core_sections, expand_requirements,
+                       parse_clauses, parse_clause_requirements,
+                       reconcile_requirements, sections_from_answers)
 from .models import (CHECKLIST_SCHEMA, INTERVIEW_SCHEMA, InterviewPlan,
                      InterviewQuestion, TenderChecklist)
 
@@ -129,8 +130,13 @@ class Coach:
         # rather than one paraphrased line per clause.
         checklist.requirements = expand_requirements(
             checklist.requirements, self.clause_reqs)
-        # Safety net: always include the cross-cutting compliance sections so
-        # an under-selecting model can't drop them from the deliverable.
+        # Safety net: always include the cross-cutting compliance sections, plus
+        # any item-specific section the buyer's interview answers say applies
+        # (e.g. hardware → 8), so an under-selecting model can't drop a section
+        # the user told us is relevant.
+        sections = tuple(dict.fromkeys(
+            CORE_SECTIONS + tuple(sections_from_answers(answers, self.clauses))))
         checklist.requirements, checklist.added_core_sections = \
-            ensure_core_sections(checklist.requirements, self.clause_reqs)
+            ensure_core_sections(checklist.requirements, self.clause_reqs,
+                                 sections)
         return checklist

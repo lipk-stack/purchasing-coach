@@ -2,6 +2,59 @@
 
 Reference this file at the start of each routine run.
 
+## Iteration 9 — 2026-06-14
+
+Reverse-prompting answers now drive section inclusion deterministically
+(closes the item-specific half of follow-up 1 without needing a live LLM —
+the buyer's own answers, not just the model, decide which sections apply):
+
+- **`coach/guideline.py`:**
+  - `_COVERAGE` entries gained a fourth field, `include_root` — the guideline
+    section folded into the checklist when that coverage topic is answered
+    affirmatively: integration → **6**, support → **7**, hardware → **8**,
+    software → **9** (the cross-cutting 4/5/11 stay always-on via
+    `CORE_SECTIONS`; cloud/data/deploy questions map to already-core sections
+    so they carry `None`).
+  - `is_affirmative(answer)` — compliance-safe yes/no reader: blank or a clear
+    negative ("no", "n/a", "not required") with no affirmative cue → does not
+    apply; an explicit yes **or any substantive answer** ("10 servers",
+    "24/7 for 3 years") → applies. Bare "no" is overridden by a co-occurring
+    affirmative ("no on-prem but yes the appliance" → applies).
+  - `sections_from_answers(answers, clauses)` — matches each coverage topic's
+    keywords against the interview *question* wording (so it works whether the
+    question was the model's own or the merged coverage one) and returns the
+    section roots whose answer was affirmative, gated on the section existing
+    in the guideline.
+- **`coach/llm.py`:** `build_checklist` unions `CORE_SECTIONS` with
+  `sections_from_answers(answers, …)` and passes the merged set to
+  `ensure_core_sections`, so a weak model that selects nothing item-specific
+  still yields the sections the buyer flagged. `added_core_sections` now also
+  reports answer-driven additions.
+- **Surfaced to the user:** CLI + web finish notes reworded from "core
+  compliance section(s) …" to "guideline section(s) … (cross-cutting
+  compliance plus sections your answers flagged as relevant)"
+  (`coach/tender.py`, `coach/webui.py`).
+- **Verified on the genuine guideline:** a model that selects ONLY one
+  software clause (9.1), with answers affirming software + integration +
+  support and denying hardware, now produces a **157-row** checklist —
+  Contract 33, Information Security 36, Interoperability 15, Support 27,
+  Software 24, Compliance & Risk 22 — and correctly **omits hardware (8)**
+  because the buyer said cloud-only. The list now reflects the interview, not
+  just the model's pick.
+- **Drive checked:** guideline + template both still `modifiedTime
+  2026-06-10T13:05:11Z` (verified again this run) — no sample refresh needed.
+- **Live LLM still unavailable** in this sandbox (no local server, no API key —
+  checked again). This whole layer is deterministic and was verified on the
+  real guideline, so it's valuable regardless of backend; the remaining
+  *live-quality* review of the model's clause selection (follow-up 1) stays
+  open, but it now matters far less since the buyer's answers backstop the
+  item-specific sections too.
+- Tests: **58 passing** (+5: `is_affirmative`, `sections_from_answers`
+  include/prune in `test_guideline.py`; answer-driven add + negative-prune
+  through the full flow in `test_tender.py`). README updated. .pyz rebuilt
+  (277 KB) and confirmed to bundle `is_affirmative`/`sections_from_answers`.
+- **main synced** after the green run (standing instruction).
+
 ## Iteration 8 — 2026-06-14
 
 Deterministic safety net for cross-cutting compliance sections (follow-up 1 —
@@ -287,12 +340,16 @@ Compliance Tracker) from the template, docx/md/txt loaders, offline tests.
    needs a live review. Next run: test a real `/tender` session (one hardware
    + one SaaS item) against LM Studio with a ~7B instruct model and check the
    model picks the right clauses (it can cite whole sections like "5"); under-
-   selection now matters more than paraphrase quality. **The deterministic
-   safety net is now implemented (iter 8):** sections 4/5/11 are always folded
-   in, so the live review is now mainly about the *item-specific* sections
-   (6 interoperability, 7 support, 8 hardware, 9 software, 12 post-impl) the
-   model must still select correctly. Consider widening `CORE_SECTIONS` if the
-   live run shows 7 (support) is also near-universal.
+   selection now matters more than paraphrase quality. **Two deterministic
+   backstops now blunt under-selection:** iter 8 always folds in 4/5/11, and
+   iter 9 folds in the item-specific sections (6 interoperability, 7 support,
+   8 hardware, 9 software) whenever the buyer's interview answer affirms them —
+   so the live review is now mainly a quality check on the model's *extra*
+   picks and on the answer wording. Remaining unbacked sections: **12
+   post-implementation** (no coverage question yet — add one if the live run
+   shows it's commonly missed) and **10 financial** (largely buyer-internal;
+   parsed normative rows are thin). Consider widening `CORE_SECTIONS` to 10/12
+   if the live run shows they're near-universal vendor obligations.
 2. **Checklist size vs local context windows.** The full guideline still rides
    in the system prompt (~7K tokens) — fine for 8K+ context models. The clause
    *body* index now exists (`parse_clause_requirements`), so the remaining work

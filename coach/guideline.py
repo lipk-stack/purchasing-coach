@@ -247,42 +247,78 @@ def ensure_core_sections(
 
 
 # Applicability questions derived from the guideline's top-level sections. Each
-# entry is (section root that must exist, dedupe keywords, question). They are
-# merged into the interview so the reverse-prompting covers every major part of
-# the guideline and the model can decide which sections apply — even on small
-# models that under-ask. Gated on the guideline actually having that section.
+# entry is (section root that must exist for the question to be asked, dedupe
+# keywords, question, include_root). They are merged into the interview so the
+# reverse-prompting covers every major part of the guideline and the model can
+# decide which sections apply — even on small models that under-ask. Gated on
+# the guideline actually having that section.
+#
+# ``include_root`` is the section that is folded into the checklist
+# deterministically when the buyer answers this question affirmatively (None
+# for questions whose section is already always-on or only narrows wording).
+# This is what ties the reverse-prompting answers to the compliance list: if
+# the buyer says the purchase includes hardware, every hardware clause is
+# included even on a model that missed section 8.
 _COVERAGE = [
     ("4", ("contract duration", "renewal", "termination", "contract term"),
      "What is the expected contract duration, and are there renewal, "
-     "extension or termination conditions to plan for?"),
+     "extension or termination conditions to plan for?", None),
     ("5", ("personal data", "pdpa", "payment", "pci", "sensitive data"),
      "Will the solution store, process or transmit personal data (PDPA) or "
-     "payment-card data (PCI DSS)?"),
+     "payment-card data (PCI DSS)?", None),
     ("5", ("internet-facing", "network", "production system", "exposed"),
      "Will the solution be internet-facing or connect to XXEON's internal "
-     "network and production systems?"),
+     "network and production systems?", None),
     ("6", ("integrat", "interoper", "sso", "existing system"),
      "Does the solution need to integrate with existing XXEON systems, "
-     "databases, browsers or single sign-on?"),
+     "databases, browsers or single sign-on?", "6"),
     ("7", ("support", "maintenance", "sla", "uptime"),
      "What level of ongoing support and maintenance is required (e.g. 24/7 or "
-     "business hours), and over what period?"),
+     "business hours), and over what period?", "7"),
     ("8", ("hardware", "equipment", "appliance", "device", "physical"),
      "Does this purchase include physical hardware or equipment (e.g. servers, "
-     "appliances, end-user devices)? If so, list the main items."),
+     "appliances, end-user devices)? If so, list the main items.", "8"),
     ("9", ("software", "licen", "application", "subscription"),
      "Does it include software or application licensing? If so, which model is "
-     "preferred (perpetual, subscription or SaaS)?"),
+     "preferred (perpetual, subscription or SaaS)?", "9"),
     ("11", ("cloud", "hosted", "saas", "iaas", "paas", "hosting"),
      "Is the vendor providing cloud or hosted services (SaaS/IaaS/PaaS), and "
-     "where would the data be hosted?"),
+     "where would the data be hosted?", None),
     ("11.3", ("cybersecurity assessment", "penetration", "pen test",
               "compromise assessment", "security assessment"),
      "Is this a cybersecurity assessment service such as a penetration test or "
-     "compromise assessment?"),
+     "compromise assessment?", None),
     ("5", ("on-premise", "on-prem", "deploy", "hybrid"),
-     "Will the solution be deployed on-premise, in the cloud, or as a hybrid?"),
+     "Will the solution be deployed on-premise, in the cloud, or as a "
+     "hybrid?", None),
 ]
+
+# A clearly negative free-text answer ("no", "none", "not applicable", ...).
+_NEGATIVE = re.compile(
+    r"\b(no|nope|none|nil|n/?a|not\s+(applicable|required|needed|relevant)|"
+    r"isn'?t|aren'?t|won'?t|will\s+not|doesn'?t|does\s+not|do\s+not|don'?t|"
+    r"never|without)\b", re.I)
+# Words that explicitly affirm, so "no hardware but yes to the appliance" still
+# counts as a yes rather than being pruned by the bare "no".
+_AFFIRMATIVE = re.compile(
+    r"\b(yes|yep|yeah|yup|correct|indeed|affirmative|sure|include[sd]?|"
+    r"required|needed|will|does|do|has|have|both|some|several)\b", re.I)
+
+
+def is_affirmative(answer: str) -> bool:
+    """Decide whether an interview answer says a topic applies.
+
+    Compliance-safe and inclusive: a blank answer or a clearly negative one
+    ("no", "n/a", "not required") with no affirmative cue is treated as "does
+    not apply"; everything else — an explicit yes, or any substantive answer
+    such as "10 servers" or "24/7 for 3 years" — is treated as "applies".
+    """
+    text = (answer or "").strip()
+    if not text:
+        return False
+    if _NEGATIVE.search(text) and not _AFFIRMATIVE.search(text):
+        return False
+    return True
 
 
 def coverage_questions(clauses: dict[str, str]) -> list[tuple[str, str]]:
@@ -296,7 +332,40 @@ def coverage_questions(clauses: dict[str, str]) -> list[tuple[str, str]]:
         return []
     present = set(clauses)
     out: list[tuple[str, str]] = []
-    for root, keywords, question in _COVERAGE:
+    for root, keywords, question, _include in _COVERAGE:
         if any(ref == root or ref.startswith(root + ".") for ref in present):
             out.append((",".join(keywords), question))
     return out
+
+
+def sections_from_answers(
+    answers: list[tuple[str, str]], clauses: dict[str, str]
+) -> list[str]:
+    """Section roots to force-include based on affirmative interview answers.
+
+    Reverse-prompting exists so the buyer's own answers decide which
+    item-specific guideline sections apply. For every coverage topic tied to a
+    section (hardware → 8, software → 9, integration → 6, support → 7), if the
+    matching interview answer is affirmative the whole section is pulled into
+    the checklist deterministically — independent of the model's clause
+    selection, so a weak model can't drop a section the buyer said applies.
+    Matching is by the question's wording (the model's own phrasing or the
+    merged coverage question), gated on the section existing in the guideline;
+    empty for unstructured guidelines.
+    """
+    if not clauses:
+        return []
+    present = set(clauses)
+    roots: list[str] = []
+    for _gate, keywords, _question, include_root in _COVERAGE:
+        if not include_root or include_root in roots:
+            continue
+        if not any(ref == include_root or ref.startswith(include_root + ".")
+                   for ref in present):
+            continue
+        for question, answer in answers:
+            ql = (question or "").lower()
+            if any(kw in ql for kw in keywords) and is_affirmative(answer):
+                roots.append(include_root)
+                break
+    return roots

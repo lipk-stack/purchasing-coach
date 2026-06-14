@@ -228,6 +228,49 @@ def test_safety_net_note_surfaced_in_tender_flow(tmp_path):
     assert any("added automatically" in n and "4, 5, 11" in n for n in notes)
 
 
+class CoreOnlyBackend(FakeBackend):
+    # A model that selects nothing item-specific — only a core security clause.
+    # The buyer's interview answers must still pull in the hardware section.
+    def complete_json(self, system, prompt, schema, schema_name,
+                      max_tokens=8192):
+        if schema_name == "interview_plan":
+            return PLAN
+        return {
+            "tender_info": CHECKLIST["tender_info"],
+            "requirements": [
+                {"ref": "5.6", "section": "Audits",
+                 "requirement": "Annual audits.", "mandatory": "M"},
+            ],
+        }
+
+
+def test_interview_answers_drive_section_inclusion():
+    coach = Coach(SAFETYNET_GUIDELINE, CoreOnlyBackend())
+    answers = [
+        ("Does this purchase include physical hardware or equipment?",
+         "Yes, firewall appliances"),
+    ]
+    checklist = coach.build_checklist("Firewall appliances", answers)
+    refs = [r.ref for r in checklist.requirements]
+    # Section 8 is folded in because the buyer affirmed hardware, even though
+    # the model never selected it; core 4/11 come in too.
+    assert refs == ["4.1", "5.6", "8.4", "11.1"]
+    assert checklist.added_core_sections == ["4", "8", "11"]
+
+
+def test_negative_answer_does_not_add_item_section():
+    coach = Coach(SAFETYNET_GUIDELINE, CoreOnlyBackend())
+    answers = [
+        ("Does this purchase include physical hardware or equipment?",
+         "No, this is a pure SaaS subscription"),
+    ]
+    checklist = coach.build_checklist("SaaS tool", answers)
+    refs = [r.ref for r in checklist.requirements]
+    # Hardware (8) is pruned by the negative answer; only core sections added.
+    assert "8.4" not in refs
+    assert checklist.added_core_sections == ["4", "11"]
+
+
 def test_tender_flow_cancels_on_empty_item(tmp_path):
     coach = make_coach()
     out = run_tender_flow(coach, None, tmp_path,

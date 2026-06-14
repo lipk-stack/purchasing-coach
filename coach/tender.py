@@ -38,8 +38,10 @@ def run_tender_flow(coach: Coach, template_path: str | Path | None,
     say(f"\nDone. {len(checklist.requirements)} requirements written to: {out_path}")
     if checklist.added_core_sections:
         secs = ", ".join(checklist.added_core_sections)
-        say(f"Note: core compliance section(s) {secs} were added automatically "
-            "to ensure full coverage — review whether every row applies.")
+        say(f"Note: guideline section(s) {secs} were added automatically "
+            "to ensure full coverage (cross-cutting compliance plus sections "
+            "your answers flagged as relevant) — review whether every row "
+            "applies.")
     if checklist.unverified_refs:
         refs = ", ".join(checklist.unverified_refs)
         say(f"Note: {len(checklist.unverified_refs)} clause reference(s) "

@@ -2,9 +2,9 @@
 
 from coach.guideline import (classify_obligation, clause_sort_key,
                             coverage_questions, ensure_core_sections,
-                            expand_requirements, normalize_ref,
+                            expand_requirements, is_affirmative, normalize_ref,
                             parse_clause_requirements, parse_clauses,
-                            reconcile_requirements)
+                            reconcile_requirements, sections_from_answers)
 from coach.models import RequirementRow
 
 GUIDELINE = """\
@@ -215,3 +215,39 @@ def test_coverage_questions_gated_on_present_sections():
     assert "support and maintenance" not in joined  # section 7 absent
     # Unstructured guideline grounds no coverage questions.
     assert coverage_questions({}) == []
+
+
+def test_is_affirmative_reads_yes_no_and_substantive_answers():
+    # Explicit and substantive answers count as "applies".
+    assert is_affirmative("Yes")
+    assert is_affirmative("10 servers and 5 laptops")
+    assert is_affirmative("24/7 for three years")
+    assert is_affirmative("No on-prem servers but yes to the appliance")
+    # Clear negatives and blanks do not.
+    assert not is_affirmative("No")
+    assert not is_affirmative("None")
+    assert not is_affirmative("Not applicable")
+    assert not is_affirmative("n/a")
+    assert not is_affirmative("")
+    assert not is_affirmative("No, this is a pure SaaS subscription")
+
+
+def test_sections_from_answers_includes_sections_buyer_affirms():
+    clauses = parse_clauses(GUIDELINE)  # has sections 5 and 8 only
+    answers = [
+        ("Does this purchase include physical hardware or equipment?",
+         "Yes, 10 rack servers"),
+        ("Will the solution store personal data?", "No"),
+    ]
+    # Hardware (8) is affirmed and present in the guideline; section 9 is not in
+    # the guideline so even an affirmative answer can't pull it in.
+    assert sections_from_answers(answers, clauses) == ["8"]
+
+
+def test_sections_from_answers_prunes_negative_and_unstructured():
+    clauses = parse_clauses(GUIDELINE)
+    answers = [("Does this purchase include physical hardware?",
+                "No, software only")]
+    assert sections_from_answers(answers, clauses) == []
+    # Unstructured guideline grounds nothing.
+    assert sections_from_answers(answers, {}) == []
