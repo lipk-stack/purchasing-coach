@@ -186,11 +186,23 @@ Annual third-party security audits are mandatory.
 
 Minimum warranty periods must be specified.
 
+## 10 FINANCIAL CONSIDERATIONS
+
+### 10.1 Total Cost of Ownership (TCO) Analysis
+
+A five-year TCO analysis must be provided.
+
 ## 11 COMPLIANCE AND RISK MANAGEMENT
 
 ### 11.1 Regulatory Compliance
 
 The vendor must comply with all applicable regulations.
+
+## 12 POST-IMPLEMENTATION
+
+### 12.1 Performance Evaluation Criteria
+
+Vendors must provide regular performance reports.
 """
 
 
@@ -225,7 +237,11 @@ def test_safety_net_note_surfaced_in_tender_flow(tmp_path):
     run_tender_flow(coach, None, tmp_path,
                     ask=lambda prompt: "Firewall appliances",
                     say=lambda *a: notes.append(" ".join(map(str, a))))
-    assert any("added automatically" in n and "4, 5, 11" in n for n in notes)
+    # The blanket "Firewall appliances" answer affirms every applicability
+    # question, so the answer-driven sections (10, 12) fold in alongside the
+    # always-on core (4, 5, 11).
+    assert any("added automatically" in n and "4, 5, 10, 11, 12" in n
+               for n in notes)
 
 
 class CoreOnlyBackend(FakeBackend):
@@ -269,6 +285,24 @@ def test_negative_answer_does_not_add_item_section():
     # Hardware (8) is pruned by the negative answer; only core sections added.
     assert "8.4" not in refs
     assert checklist.added_core_sections == ["4", "11"]
+
+
+def test_financial_and_post_implementation_answers_drive_inclusion():
+    coach = Coach(SAFETYNET_GUIDELINE, CoreOnlyBackend())
+    answers = [
+        ("What are the financial expectations — should the vendor provide a "
+         "five-year Total Cost of Ownership and ROI analysis, and what payment "
+         "schedule is preferred?", "Yes, 5-year TCO and quarterly payments"),
+        ("After go-live, will you require post-implementation performance "
+         "reviews, user feedback collection, and a continuous improvement "
+         "roadmap from the vendor?", "Yes, reviews at 3/6/12 months"),
+    ]
+    checklist = coach.build_checklist("Analytics platform", answers)
+    refs = [r.ref for r in checklist.requirements]
+    # Financial (10) and post-implementation (12) fold in from the answers, on
+    # top of the always-on core sections — the model selected neither.
+    assert "10.1" in refs and "12.1" in refs
+    assert checklist.added_core_sections == ["4", "10", "11", "12"]
 
 
 def test_tender_flow_cancels_on_empty_item(tmp_path):

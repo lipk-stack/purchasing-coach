@@ -281,6 +281,16 @@ _COVERAGE = [
     ("9", ("software", "licen", "application", "subscription"),
      "Does it include software or application licensing? If so, which model is "
      "preferred (perpetual, subscription or SaaS)?", "9"),
+    ("10", ("total cost", "ownership", "tco", "roi", "payment schedule",
+            "financial"),
+     "What are the financial expectations — should the vendor provide a "
+     "five-year Total Cost of Ownership and ROI analysis, and what payment "
+     "schedule (monthly, quarterly or annual) is preferred?", "10"),
+    ("12", ("post-implementation", "performance review", "user feedback",
+            "continuous improvement", "roadmap", "go-live"),
+     "After go-live, will you require post-implementation performance reviews, "
+     "user feedback collection, and a continuous improvement roadmap from the "
+     "vendor?", "12"),
     ("11", ("cloud", "hosted", "saas", "iaas", "paas", "hosting"),
      "Is the vendor providing cloud or hosted services (SaaS/IaaS/PaaS), and "
      "where would the data be hosted?", None),
@@ -345,7 +355,8 @@ def sections_from_answers(
 
     Reverse-prompting exists so the buyer's own answers decide which
     item-specific guideline sections apply. For every coverage topic tied to a
-    section (hardware → 8, software → 9, integration → 6, support → 7), if the
+    section (integration → 6, support → 7, hardware → 8, software → 9,
+    financial → 10, post-implementation → 12), if the
     matching interview answer is affirmative the whole section is pulled into
     the checklist deterministically — independent of the model's clause
     selection, so a weak model can't drop a section the buyer said applies.

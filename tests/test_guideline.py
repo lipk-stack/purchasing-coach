@@ -251,3 +251,41 @@ def test_sections_from_answers_prunes_negative_and_unstructured():
     assert sections_from_answers(answers, clauses) == []
     # Unstructured guideline grounds nothing.
     assert sections_from_answers(answers, {}) == []
+
+
+# Financial (10) and post-implementation (12) are the only normative top-level
+# sections that previously had no coverage question, so the interview did not
+# cover the whole guideline. These pin the new answer-driven coverage.
+FINPOST_GUIDELINE = """\
+# XXEON IT Procurement Guideline
+
+## 10 FINANCIAL CONSIDERATIONS
+
+### 10.1 Total Cost of Ownership (TCO) Analysis
+
+A five-year TCO analysis must be provided.
+
+## 12 POST-IMPLEMENTATION
+
+### 12.1 Performance Evaluation Criteria
+
+Vendors must provide regular performance reports.
+"""
+
+
+def test_coverage_questions_cover_financial_and_post_implementation():
+    questions = [q for _, q in coverage_questions(parse_clauses(FINPOST_GUIDELINE))]
+    joined = " ".join(questions).lower()
+    assert "total cost of ownership" in joined   # section 10 present
+    assert "post-implementation" in joined       # section 12 present
+
+
+def test_sections_from_answers_includes_financial_and_post_implementation():
+    clauses = parse_clauses(FINPOST_GUIDELINE)
+    questions = dict(coverage_questions(clauses)).values()
+    # The merged coverage questions, answered affirmatively, pull in 10 and 12.
+    answers = [(q, "Yes") for q in questions]
+    assert sections_from_answers(answers, clauses) == ["10", "12"]
+    # Declining both keeps them out of the checklist.
+    declined = [(q, "No") for q in questions]
+    assert sections_from_answers(declined, clauses) == []

@@ -30,11 +30,13 @@ procurement guideline in `.docx`) and lets you:
    the model's questions it always probes applicability of every major section
    present (hardware, software/licensing, cloud/SaaS hosting, personal/payment
    data, cybersecurity assessments, integration/SSO, support level, contract
-   duration, deployment model) so the right sections — and therefore the full
+   duration, financial/TCO expectations, post-implementation reviews,
+   deployment model) so the right sections — and therefore the full
    set of relevant requirements — make it into the checklist. **Your answers
    drive section inclusion directly:** if you say the purchase includes
-   hardware, integration or support, that whole guideline section (8, 6, 7) is
-   pulled into the checklist deterministically — even on a weak local model
+   hardware, integration, support, financial/TCO obligations or
+   post-implementation reviews, that whole guideline section (8, 6, 7, 10, 12)
+   is pulled into the checklist deterministically — even on a weak local model
    that didn't select it — while a clear "no" keeps an irrelevant section out.
    This means the compliance list reflects what you told the interview, not
    just what the model happened to pick.

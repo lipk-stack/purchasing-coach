@@ -2,6 +2,49 @@
 
 Reference this file at the start of each routine run.
 
+## Iteration 10 — 2026-06-14
+
+Closed the last reverse-prompting coverage gap so the interview now covers
+*every* normative section of the guideline (user request: "ask additional
+questions as needed to cover the content of the guideline fully"):
+
+- **The gap:** sections **10 Financial Considerations** and **12
+  Post-Implementation** were the only normative top-level sections with **no
+  coverage question** — every other section (4–9, 11) already had one. They are
+  genuine vendor deliverables (10: five-year TCO, ROI projections, payment
+  schedules; 12: performance reviews at 3/6/12 months, user-feedback collection,
+  continuous-improvement roadmap), so a buyer interview that never asked about
+  them could silently drop ~23 vendor obligations on a model that didn't pick
+  10/12.
+- **`coach/guideline.py` — two new `_COVERAGE` entries** with `include_root`
+  `"10"` and `"12"`, wired exactly like the existing item-specific topics
+  (6/7/8/9): an affirmative interview answer folds the whole section's atomic
+  requirements into the checklist deterministically; a clear "no"/blank keeps it
+  out. Kept them **answer-driven rather than in `CORE_SECTIONS`** (the
+  conservative call — post-implementation reviews and TCO analyses are
+  near-universal but not strictly every-procurement like contract/security/
+  compliance; consistent with how 6/7/8/9 are handled). `sections_from_answers`
+  docstring updated to list the full mapping (6/7/8/9/10/12).
+- **Verified on the genuine guideline:** `coverage_questions` now returns **12**
+  questions and covers TCO + post-implementation; affirming both pulls in
+  section 10 (**13 rows**) and section 12 (**10 rows**) through the full
+  `ensure_core_sections` fold-in; declining both keeps them out.
+- **`README.md`** "every major section" list + the answer-driven paragraph now
+  mention financial/TCO and post-implementation (sections 10, 12).
+- **Drive checked:** guideline (`XXEON_IT_Procurement_Guideline.docx`) and
+  template (`TENDER_TEMPLATE.xlsx`) both still `modifiedTime
+  2026-06-10T13:05:11Z` (verified this run) — no sample refresh needed.
+- **Live LLM still unavailable** (no API key, ports 1234/11434 closed — checked
+  again). This layer is deterministic and verified on the real guideline, so
+  it's valuable regardless of backend; follow-up 1's live *quality* review stays
+  open but the unbacked-section risk it flagged (10/12) is now closed.
+- Tests: **61 passing** (+3: `coverage_questions` cover 10/12 and
+  `sections_from_answers` include/prune for 10/12 in `test_guideline.py`; an
+  affirmative financial+post-impl full-flow add in `test_tender.py`; updated the
+  safety-net-note flow assertion to "4, 5, 10, 11, 12"). .pyz rebuilt (278 KB)
+  and confirmed to bundle the new coverage + run.
+- **main synced** after the green run (standing instruction).
+
 ## Iteration 9 — 2026-06-14
 
 Reverse-prompting answers now drive section inclusion deterministically
@@ -345,11 +388,15 @@ Compliance Tracker) from the template, docx/md/txt loaders, offline tests.
    iter 9 folds in the item-specific sections (6 interoperability, 7 support,
    8 hardware, 9 software) whenever the buyer's interview answer affirms them —
    so the live review is now mainly a quality check on the model's *extra*
-   picks and on the answer wording. Remaining unbacked sections: **12
-   post-implementation** (no coverage question yet — add one if the live run
-   shows it's commonly missed) and **10 financial** (largely buyer-internal;
-   parsed normative rows are thin). Consider widening `CORE_SECTIONS` to 10/12
-   if the live run shows they're near-universal vendor obligations.
+   picks and on the answer wording. **Sections 10 (financial/TCO) and 12
+   (post-implementation) are now answer-backed too** (iter 10) — every
+   normative top-level section now has a coverage question with answer-driven
+   inclusion, so the only remaining unbacked path is a buyer who declines a
+   section that nonetheless applies. Open question for the live run: whether
+   10/12 should be promoted from answer-driven to `CORE_SECTIONS` (always-on) —
+   they're near-universal vendor obligations, but kept answer-driven for now to
+   avoid bloating checklists for pure commodity buys; revisit if the live run
+   shows buyers routinely want them regardless.
 2. **Checklist size vs local context windows.** The full guideline still rides
    in the system prompt (~7K tokens) — fine for 8K+ context models. The clause
    *body* index now exists (`parse_clause_requirements`), so the remaining work
