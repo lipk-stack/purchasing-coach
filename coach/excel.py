@@ -11,8 +11,18 @@ from .models import RequirementRow, TenderInfo
 
 INFO_SHEET = "Tender Information"
 TRACKER_SHEET = "Compliance Tracker"
+REVIEW_SHEET = "Review & Approval"
 TRACKER_HEADERS = ["Seq", "Ref", "Section", "Requirement", "M/O",
                    "Vendor Status", "Vendor Remarks"]
+
+# The reviewer's recommendation is also a fixed vocabulary so the approval
+# decision is unambiguous and filterable across submissions.
+REVIEW_DECISION_OPTIONS = [
+    "Approved",
+    "Approved with Conditions",
+    "Rejected",
+    "Resubmission Required",
+]
 
 # Standardised values the vendor/service provider picks from when populating
 # the "Vendor Status" column. A fixed vocabulary (rather than free text) keeps
@@ -45,7 +55,8 @@ def write_checklist(
         wb = create_blank_template()
 
     _fill_info_sheet(wb, tender_info)
-    _fill_tracker_sheet(wb, requirements)
+    header_row, last_row, col = _fill_tracker_sheet(wb, requirements)
+    _add_review_sheet(wb, header_row, last_row, col)
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(str(out_path))
@@ -73,7 +84,7 @@ def _fill_info_sheet(wb, tender_info: TenderInfo) -> None:
             ws.cell(row=row, column=2, value=values[label])
 
 
-def _fill_tracker_sheet(wb, requirements: list[RequirementRow]) -> None:
+def _fill_tracker_sheet(wb, requirements: list[RequirementRow]):
     ws = _find_sheet(wb, TRACKER_SHEET)
     header_row = _find_header_row(ws)
     col = {str(c.value).strip(): c.column for c in ws[header_row] if c.value}
@@ -102,6 +113,7 @@ def _fill_tracker_sheet(wb, requirements: list[RequirementRow]) -> None:
     # reviewer scrolls a long, granular checklist.
     if last_row > header_row:
         ws.freeze_panes = ws.cell(row=header_row + 1, column=1)
+    return header_row, last_row, col
 
 
 def _add_status_dropdown(ws, header_row: int, last_row: int,
@@ -125,6 +137,99 @@ def _add_status_dropdown(ws, header_row: int, last_row: int,
     dv.promptTitle = "Vendor Status"
     dv.add(f"{letter}{header_row + 1}:{letter}{last_row}")
     ws.add_data_validation(dv)
+
+
+def _add_review_sheet(wb, header_row: int, last_row: int,
+                      col: dict[str, int]) -> None:
+    """Add a Review & Approval sheet that tallies the vendor's submission.
+
+    The compliance summary uses live formulas over the Compliance Tracker, so
+    the moment the vendor populates the Vendor Status dropdown the reviewer sees
+    the counts — including the **mandatory non-compliant** total, the go/no-go
+    figure. A reviewer sign-off block (with a fixed decision dropdown) captures
+    the approval outcome on the same workbook that's submitted for review.
+
+    No-op when there are no data rows or the status column is absent.
+    """
+    status_col = col.get("Vendor Status")
+    mo_col = col.get("M/O")
+    if not status_col or last_row <= header_row:
+        return
+
+    tracker = _find_sheet(wb, TRACKER_SHEET)
+    # Quote the sheet name for cross-sheet formula references (it has a space).
+    sheet = f"'{tracker.title}'"
+    status = get_column_letter(status_col)
+    srange = f"{sheet}!{status}{header_row + 1}:{status}{last_row}"
+    total = last_row - header_row
+
+    def countif(value: str) -> str:
+        return f'=COUNTIF({srange},"{value}")'
+
+    summary = [
+        ("Total requirements", total),
+        ("Compliant", countif("Compliant")),
+        ("Partially Compliant", countif("Partially Compliant")),
+        ("Non-Compliant", countif("Non-Compliant")),
+        ("Not Applicable", countif("Not Applicable")),
+        ("Awaiting vendor response", f"=COUNTBLANK({srange})"),
+    ]
+    if mo_col:
+        mo = get_column_letter(mo_col)
+        mrange = f"{sheet}!{mo}{header_row + 1}:{mo}{last_row}"
+        summary += [
+            ("Mandatory (M) requirements", f'=COUNTIF({mrange},"M")'),
+            ("Mandatory non-compliant (review blocker)",
+             f'=COUNTIFS({mrange},"M",{srange},"Non-Compliant")'),
+        ]
+
+    # Build a fresh sheet so re-runs stay idempotent.
+    if REVIEW_SHEET in wb.sheetnames:
+        del wb[REVIEW_SHEET]
+    ws = wb.create_sheet(REVIEW_SHEET)
+    title_font = Font(bold=True, size=14)
+    label_font = Font(bold=True)
+    blank_fill = PatternFill("solid", fgColor="FFF2CC")
+
+    ws["A1"] = "REVIEW & APPROVAL"
+    ws["A1"].font = title_font
+
+    ws["A3"] = "Compliance Summary"
+    ws["A3"].font = label_font
+    ws["B3"] = "(updates live as the vendor fills in Vendor Status)"
+    row = 4
+    for label, value in summary:
+        ws.cell(row=row, column=1, value=label).font = label_font
+        ws.cell(row=row, column=2, value=value)
+        row += 1
+
+    row += 1
+    ws.cell(row=row, column=1, value="Reviewer Sign-off").font = label_font
+    row += 1
+    signoff = ["Reviewed By", "Review Date", "Approval Decision",
+               "Approved By", "Approval Date", "Comments / Conditions"]
+    decision_row = None
+    for label in signoff:
+        ws.cell(row=row, column=1, value=label).font = label_font
+        cell = ws.cell(row=row, column=2)
+        cell.fill = blank_fill
+        if label == "Approval Decision":
+            decision_row = row
+        row += 1
+
+    if decision_row is not None:
+        options = ",".join(REVIEW_DECISION_OPTIONS)
+        dv = DataValidation(type="list", formula1=f'"{options}"',
+                            allow_blank=True, showDropDown=False)
+        dv.promptTitle = "Approval Decision"
+        dv.prompt = "Select the review outcome for this submission."
+        dv.errorTitle = "Invalid decision"
+        dv.error = "Pick one of the standard approval decisions."
+        dv.add(f"B{decision_row}")
+        ws.add_data_validation(dv)
+
+    ws.column_dimensions["A"].width = 40
+    ws.column_dimensions["B"].width = 40
 
 
 def _find_sheet(wb, name: str):

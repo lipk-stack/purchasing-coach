@@ -679,8 +679,10 @@ async function tenderInput(text) {
         `“${data.tender_info.purchase_item}”.` + addedCore + unverified +
         ' Vendors pick a Vendor Status (Compliant / Partially Compliant / ' +
         'Non-Compliant / Not Applicable) from the dropdown and explain in ' +
-        'Vendor Remarks. Review both sheets before sending anything to ' +
-        'vendors; the guideline itself must not be shared externally.';
+        'Vendor Remarks. The “Review & Approval” sheet tallies their ' +
+        'submission live (including mandatory non-compliant rows) for your ' +
+        'sign-off. Review the sheets before sending anything to vendors; ' +
+        'the guideline itself must not be shared externally.';
     const a = document.createElement('a');
     a.className = 'dl';
     a.href = data.download;

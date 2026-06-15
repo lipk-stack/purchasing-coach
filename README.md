@@ -13,7 +13,10 @@ procurement guideline in `.docx`) and lets you:
    Status** column is a dropdown (*Compliant / Partially Compliant /
    Non-Compliant / Not Applicable*) so submissions stay consistent and easy to
    review, and the tracker header is frozen so it stays visible while scrolling
-   a long checklist.
+   a long checklist. A **Review & Approval** sheet tallies the vendor's
+   submission with live formulas — counts per status, awaiting-response, and
+   the *mandatory non-compliant* total (the go/no-go figure) — plus a reviewer
+   sign-off block with a fixed approval-decision dropdown.
 
    The checklist is **granular and derived from the guideline in detail**: the
    model decides which clauses apply to your purchase, then each selected
@@ -131,7 +134,9 @@ Done. 42 requirements written to: TENDER_CHECKLIST_200_laptops_..._20260610.xlsx
 Supported guideline formats: `.docx` (parsed with the standard library — no
 extra packages), `.md`, `.txt`, and `.pdf` with `pip install pypdf`. If no
 template is supplied, a built-in layout matching `TENDER_TEMPLATE.xlsx`
-(sheets *Tender Information* and *Compliance Tracker*) is used.
+(sheets *Tender Information* and *Compliance Tracker*) is used. A
+*Review & Approval* sheet is always added with the compliance summary and
+reviewer sign-off block.
 
 ## Development
 

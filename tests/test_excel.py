@@ -1,6 +1,11 @@
 from openpyxl import load_workbook
 
-from coach.excel import VENDOR_STATUS_OPTIONS, write_checklist
+from coach.excel import (
+    REVIEW_DECISION_OPTIONS,
+    REVIEW_SHEET,
+    VENDOR_STATUS_OPTIONS,
+    write_checklist,
+)
 from coach.models import RequirementRow, TenderInfo
 
 INFO = TenderInfo(
@@ -84,3 +89,36 @@ def test_status_dropdown_without_template(tmp_path):
     tracker = wb["Compliance Tracker"]
     dvs = list(tracker.data_validations.dataValidation)
     assert any(d.type == "list" for d in dvs)
+
+
+def test_review_sheet_summary_and_signoff(samples, tmp_path):
+    out = write_checklist(INFO, ROWS, tmp_path / "review.xlsx", samples["template"])
+    wb = load_workbook(out)
+    assert REVIEW_SHEET in wb.sheetnames
+    ws = wb[REVIEW_SHEET]
+
+    labels = {ws.cell(r, 1).value: ws.cell(r, 2).value
+              for r in range(1, ws.max_row + 1) if ws.cell(r, 1).value}
+
+    # Live count over the tracker's Vendor Status column (data rows only).
+    letter, header_row = _status_column_letter(wb["Compliance Tracker"])
+    last_row = header_row + len(ROWS)
+    rng = f"'Compliance Tracker'!{letter}{header_row + 1}:{letter}{last_row}"
+    assert labels["Compliant"] == f'=COUNTIF({rng},"Compliant")'
+    assert labels["Total requirements"] == len(ROWS)
+    # The go/no-go figure: mandatory requirements the vendor marked non-compliant.
+    assert 'COUNTIFS' in labels["Mandatory non-compliant (review blocker)"]
+    assert '"Non-Compliant"' in labels["Mandatory non-compliant (review blocker)"]
+
+    # Reviewer sign-off block with a fixed decision vocabulary.
+    assert "Approved By" in labels
+    decision_dv = next(d for d in ws.data_validations.dataValidation
+                       if d.type == "list")
+    for option in REVIEW_DECISION_OPTIONS:
+        assert option in decision_dv.formula1
+
+
+def test_review_sheet_without_template(tmp_path):
+    out = write_checklist(INFO, ROWS, tmp_path / "review_blank.xlsx", None)
+    wb = load_workbook(out)
+    assert REVIEW_SHEET in wb.sheetnames

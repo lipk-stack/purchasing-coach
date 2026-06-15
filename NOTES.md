@@ -2,6 +2,54 @@
 
 Reference this file at the start of each routine run.
 
+## Iteration 14 — 2026-06-15
+
+Closed the review/approval reporting gap: the workbook the vendor populates and
+submits is now self-scoring for the reviewer (builds on iter 13's Vendor Status
+dropdown — that gave the reviewer a consistent vocabulary; this turns it into an
+at-a-glance decision).
+
+- **`coach/excel.py` — new `Review & Approval` sheet (`_add_review_sheet`).**
+  Always added (genuine template and the no-template path) whenever the tracker
+  has data rows. Two blocks:
+  - **Compliance Summary** — *live* formulas over the Compliance Tracker's
+    Vendor Status column (`COUNTIF`/`COUNTBLANK`/`COUNTIFS`), so the counts
+    update the moment the vendor fills the dropdown: total, Compliant /
+    Partially / Non-Compliant / Not Applicable, Awaiting vendor response,
+    Mandatory (M) total, and **Mandatory non-compliant (review blocker)** — the
+    go/no-go figure (a `COUNTIFS` of M/O="M" AND status="Non-Compliant"). Sheet
+    name is quoted (`'Compliance Tracker'!F3:F204`) and the range is the data
+    rows only (`header_row+1..last_row`).
+  - **Reviewer Sign-off** — Reviewed By / Review Date / Approval Decision /
+    Approved By / Approval Date / Comments-Conditions, value cells shaded. The
+    Approval Decision cell is a data-validation **list** over the fixed
+    `REVIEW_DECISION_OPTIONS` = *Approved / Approved with Conditions / Rejected /
+    Resubmission Required* — so the outcome is unambiguous and filterable.
+  - `write_checklist` now threads `(header_row, last_row, col)` out of
+    `_fill_tracker_sheet` into the review builder. Idempotent: deletes any
+    existing `Review & Approval` sheet before rebuilding.
+- **Verified end-to-end on the genuine `TENDER_TEMPLATE.xlsx`** with a 202-row
+  checklist: three sheets present, summary formulas point at `F3:F204` /
+  `E3:E204`, the `TenderRequirements` table still extends to `A2:G204`, the
+  decision dropdown lands on the right cell and the workbook reloads cleanly in
+  openpyxl (table + tracker validation + freeze + the new review-sheet
+  validation all coexist — no corruption). Same confirmed from the **bundled
+  .pyz** (280 KB, rebuilt and verified to contain `_add_review_sheet`).
+- **Surfaced to the user:** CLI finish note (`coach/tender.py`) and web finish
+  note (`coach/webui.py`) now mention the Review & Approval sheet tallying the
+  submission for sign-off. README updated (feature list + the no-template note).
+- Tests: **69 passing** (+2: review-sheet summary formulas + sign-off decision
+  vocabulary on the real template, and review sheet on the no-template path in
+  `test_excel.py`).
+- **Drive checked:** guideline (`XXEON_IT_Procurement_Guideline.docx`) and
+  template (`TENDER_TEMPLATE.xlsx`) both still `modifiedTime 2026-06-10T13:05:11Z`
+  (verified this run) — no sample refresh needed.
+- **Live LLM still unavailable** in this sandbox (no API key; ports 1234/11434
+  closed — checked again). This layer is deterministic and verified on the real
+  template, so it's valuable regardless of backend; follow-up 1's live quality
+  review stays open.
+- **main synced** after the green run (standing instruction).
+
 ## Iteration 13 — 2026-06-14
 
 Made the Excel deliverable itself review-/approval-ready (the checklist is
@@ -537,6 +585,12 @@ Compliance Tracker) from the template, docx/md/txt loaders, offline tests.
    the web sandbox (Playwright/Puppeteer download hosts are blocked) and we
    don't want node_modules in the repo. If we later want this in CI, either
    vendor a tiny jsdom-free DOM stub or run it where a browser is available.
+11. **Review & Approval sheet polish (iter 14).** Possible nice-to-haves for a
+    future run: conditional formatting that turns the *Mandatory non-compliant*
+    cell red when > 0; a computed compliance-rate % row; and reflecting the
+    review-sheet summary in the web finish note (today it only links the file).
+    All deterministic — no live LLM needed. Worth confirming the formulas render
+    in real Excel/LibreOffice (only openpyxl reload is exercised in-sandbox).
 10. **Live UI test against the user's LM Studio.** The web sandbox cannot
     reach the user's machine localhost (LM Studio at :1234 is isolated —
     verified 2026-06-13), so stress testing used an in-container streaming
