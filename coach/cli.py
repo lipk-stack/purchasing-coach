@@ -5,7 +5,8 @@ import sys
 from pathlib import Path
 
 from . import __version__
-from .backends import BackendError, detect_backend
+from .backends import BackendError, detect_backend, get_backend, list_backends
+from .backends.openai_compat import PROVIDER_PRESETS
 from .documents import load_guideline
 from .format import StreamPrinter, enable_windows_ansi
 from .llm import Coach
@@ -14,7 +15,7 @@ from .tender import run_tender_flow
 BANNER = """\
 Purchasing Coach v{version} — chat with your purchasing guideline.
 Guideline: {guideline}
-LLM:       {backend} ({model})
+Backend:   {backend} ({model})
 Commands:
   /tender   generate a tender checklist (Excel) for an item you want to buy
   /help     show this help
@@ -27,8 +28,9 @@ def main(argv: list[str] | None = None) -> int:
         prog="purchasing-coach",
         description="Chat with a purchasing guideline and generate tender "
                     "checklists from an Excel template. Works with a local "
-                    "LLM via LM Studio or Ollama (no cloud account needed) "
-                    "or with the Claude API.",
+                    "LLM via LM Studio or Ollama (no cloud account needed), "
+                    "any OpenAI-compatible API, the Claude API, or built-in "
+                    "keyword/template/BM25 backends (no model required).",
     )
     parser.add_argument("--guideline", "-g",
                         default=_default("XXEON_IT_Procurement_Guideline.docx",
@@ -41,12 +43,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out-dir", "-o", default=".",
                         help="Directory for generated checklists")
     parser.add_argument("--backend", "-b", default="auto",
-                        choices=["auto", "lmstudio", "ollama", "claude"],
-                        help="LLM backend (default: auto-detect LM Studio, "
-                             "then Ollama, then Claude API)")
+                        choices=list_backends(),
+                        help="AI backend (default: auto-detect LM Studio, "
+                             "then Ollama, then Claude API, then keyword)")
     parser.add_argument("--base-url",
                         help="URL of any OpenAI-compatible server, e.g. "
                              "http://localhost:1234/v1")
+    parser.add_argument("--provider",
+                        choices=list(PROVIDER_PRESETS.keys()),
+                        help="Provider preset for OpenAI-compatible backends "
+                             "(e.g. openai, groq, together, gemini)")
+    parser.add_argument("--api-key",
+                        help="API key for cloud providers (openai-compat "
+                             "backend)")
     parser.add_argument("--llm-model", "-m",
                         help="Model name (default: first model the local "
                              "server reports / claude-opus-4-8 for Claude)")
@@ -66,9 +75,15 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     try:
-        backend = detect_backend(args.backend, args.base_url, args.llm_model)
+        backend = get_backend(
+            args.backend,
+            base_url=args.base_url,
+            model=args.llm_model,
+            api_key=args.api_key,
+            provider=args.provider,
+        )
     except BackendError as exc:
-        print(f"LLM setup failed: {exc}", file=sys.stderr)
+        print(f"Backend setup failed: {exc}", file=sys.stderr)
         return 2
 
     guideline_text = load_guideline(args.guideline)

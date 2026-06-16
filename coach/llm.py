@@ -40,9 +40,16 @@ class Coach:
 
     def __init__(self, guideline_text: str, backend):
         self.backend = backend
+        self.guideline_text = guideline_text
         self.system = SYSTEM_TEMPLATE.format(guideline=guideline_text)
         self.clauses = parse_clauses(guideline_text)
         self.clause_reqs = parse_clause_requirements(guideline_text)
+        # Pre-load the guideline into the backend's retrieval index.
+        # LLM backends ignore this (they get the guideline via the system
+        # prompt); retrieval-based backends build their index here.
+        # Use hasattr to stay compatible with minimal test fakes.
+        if hasattr(backend, "load_guideline"):
+            backend.load_guideline(guideline_text, self.clauses, self.clause_reqs)
 
     # ---- chat -----------------------------------------------------------
     def answer(self, history: list[dict]) -> Iterator[str]:

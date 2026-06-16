@@ -7,6 +7,7 @@ import pytest
 
 from coach import backends
 from coach.backends import BackendError, OpenAICompatBackend, extract_json
+from coach.backends import openai_compat as _oac
 from coach.models import InterviewPlan, RequirementRow, TenderChecklist
 
 
@@ -41,9 +42,11 @@ def test_requirement_row_normalises_mandatory():
     assert RequirementRow.from_dict({"requirement": "x"}).mandatory == "M"
 
 
-def test_checklist_requires_rows():
-    with pytest.raises(ValueError):
-        TenderChecklist.from_dict({"tender_info": {}, "requirements": []})
+def test_checklist_accepts_empty_rows():
+    # Non-LLM backends may return empty requirements; the Coach's deterministic
+    # pipeline (reconcile, expand, ensure_core_sections) fills them in.
+    checklist = TenderChecklist.from_dict({"tender_info": {}, "requirements": []})
+    assert checklist.requirements == []
 
 
 def test_tender_info_defaults_to_tbc():
@@ -76,7 +79,7 @@ def _make_backend(monkeypatch, responses):
             raise body
         return FakeResponse(body)
 
-    monkeypatch.setattr(backends.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(_oac.urllib.request, "urlopen", fake_urlopen)
     return calls
 
 

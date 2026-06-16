@@ -134,10 +134,137 @@ class TenderChecklist:
                 for r in data.get("requirements") or []
                 if isinstance(r, dict)]
         rows = [r for r in rows if r.requirement]
-        if not rows:
-            raise ValueError("model returned no requirement rows")
+        # Non-LLM backends may return empty rows; the Coach's deterministic
+        # pipeline (reconcile, expand, ensure_core_sections) fills them in.
         return cls(tender_info=TenderInfo.from_dict(data.get("tender_info") or {}),
                    requirements=rows)
+
+
+# --------------------------------------------------------------------------
+# Session & chat models (for the web UI)
+# --------------------------------------------------------------------------
+@dataclass
+class ChatMessage:
+    """A single message in a chat conversation."""
+
+    role: str  # "user", "assistant", "system"
+    content: str
+    timestamp: str = ""
+    reactions: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        return {
+            "role": self.role,
+            "content": self.content,
+            "timestamp": self.timestamp,
+            "reactions": self.reactions,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "ChatMessage":
+        return cls(
+            role=str(data.get("role", "user")),
+            content=str(data.get("content", "")),
+            timestamp=str(data.get("timestamp", "")),
+            reactions=list(data.get("reactions") or []),
+        )
+
+
+@dataclass
+class Session:
+    """A persisted chat session with message history and optional checklist."""
+
+    id: str
+    title: str = "New session"
+    messages: list[ChatMessage] = field(default_factory=list)
+    backend: str = ""
+    guideline_path: str = ""
+    checklist_data: dict | None = None
+    created_at: str = ""
+    updated_at: str = ""
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "title": self.title,
+            "messages": [m.to_dict() for m in self.messages],
+            "backend": self.backend,
+            "guideline_path": self.guideline_path,
+            "checklist_data": self.checklist_data,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Session":
+        msgs = [ChatMessage.from_dict(m) for m in (data.get("messages") or [])]
+        return cls(
+            id=str(data.get("id", "")),
+            title=str(data.get("title", "New session")),
+            messages=msgs,
+            backend=str(data.get("backend", "")),
+            guideline_path=str(data.get("guideline_path", "")),
+            checklist_data=data.get("checklist_data"),
+            created_at=str(data.get("created_at", "")),
+            updated_at=str(data.get("updated_at", "")),
+        )
+
+
+@dataclass
+class AnalyticsSnapshot:
+    """Point-in-time analytics for a tender checklist, rendered by the dashboard."""
+
+    total_requirements: int = 0
+    by_section: dict[str, int] = field(default_factory=dict)
+    mandatory_count: int = 0
+    optional_count: int = 0
+    coverage_pct: float = 0.0
+    section_heatmap: dict[str, float] = field(default_factory=dict)
+
+    @classmethod
+    def from_checklist(
+        cls,
+        requirements: list[RequirementRow],
+        total_clauses: int = 0,
+    ) -> "AnalyticsSnapshot":
+        """Compute analytics from a list of requirement rows."""
+        by_section: dict[str, int] = {}
+        mandatory = 0
+        optional = 0
+        sections_seen: set[str] = set()
+
+        for row in requirements:
+            by_section[row.section] = by_section.get(row.section, 0) + 1
+            if row.mandatory == "M":
+                mandatory += 1
+            else:
+                optional += 1
+            # Track unique section roots for coverage calculation
+            root = row.ref.split(".")[0] if row.ref else ""
+            if root:
+                sections_seen.add(root)
+
+        total = len(requirements)
+        coverage = 0.0
+        if total_clauses > 0:
+            # Coverage = how many top-level sections are represented
+            max_sections = max(total_clauses, 1)
+            coverage = round(len(sections_seen) / max_sections * 100, 1)
+
+        # Heatmap: normalise section counts to 0–1 range
+        heatmap: dict[str, float] = {}
+        max_count = max(by_section.values()) if by_section else 1
+        for sec, count in by_section.items():
+            heatmap[sec] = round(count / max(max_count, 1), 2)
+
+        return cls(
+            total_requirements=total,
+            by_section=dict(sorted(by_section.items())),
+            mandatory_count=mandatory,
+            optional_count=optional,
+            coverage_pct=coverage,
+            section_heatmap=heatmap,
+        )
 
 
 CHECKLIST_SCHEMA = {

@@ -1,41 +1,135 @@
-"""Minimal local web UI on the stdlib http.server — no extra packages.
+"""Enterprise web UI with multi-backend support, session persistence,
+analytics dashboard, interactive checklist viewer, and premium design.
 
-Serves a single-page chat interface for the same Coach used by the CLI:
-free-form questions about the guideline plus the tender-checklist wizard.
-The server binds to 127.0.0.1 only; generated workbooks are written to the
-out dir and offered as downloads.
+Serves a single-page application for the Purchasing Coach: free-form
+questions about the guideline, the tender-checklist wizard, dashboard
+analytics, and session management.  The server binds to 127.0.0.1 only;
+generated workbooks are written to the out dir and offered as downloads.
 
-The page is one self-contained HTML document (inline CSS + JS, system fonts,
-no CDN or build step) so it works on locked-down, offline corporate machines.
+The page is one self-contained HTML document (inline CSS + JS, system
+fonts, no CDN) so it works on locked-down, offline corporate machines.
 """
 
 import json
+import os
 import threading
+import uuid
 import webbrowser
-from datetime import date
+from datetime import date, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from .excel import write_checklist
 from .llm import Coach
-from .models import TenderChecklist
+from .models import (
+    AnalyticsSnapshot,
+    ChatMessage,
+    Session,
+    TenderChecklist,
+    RequirementRow,
+)
 from .tender import output_name
+
+SESSIONS_DIR = Path.home() / ".purchasing-coach" / "sessions"
 
 
 class WebUI:
     def __init__(self, coach: Coach, backend, guideline_path: str,
-                 template_path: str | Path | None, out_dir: str | Path = "."):
+                 template_path=None, out_dir="."):
         self.coach = coach
         self.backend = backend
         self.guideline_path = str(guideline_path)
         self.template_path = template_path
         self.out_dir = Path(out_dir)
-        self.generated: set[str] = set()  # downloadable file names
+        self.generated: set[str] = set()
+        self._last_checklist: list[RequirementRow] | None = None
+        SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
 
-    # -- API operations ------------------------------------------------------
+    # -- session persistence --------------------------------------------------
+    def _session_path(self, sid: str) -> Path:
+        return SESSIONS_DIR / f"{sid}.json"
+
+    def list_sessions(self) -> list[dict]:
+        sessions = []
+        for p in sorted(SESSIONS_DIR.glob("*.json"), reverse=True):
+            try:
+                data = json.loads(p.read_text("utf-8"))
+                sessions.append({
+                    "id": data.get("id", p.stem),
+                    "title": data.get("title", "New session"),
+                    "updated_at": data.get("updated_at", ""),
+                    "message_count": len(data.get("messages", [])),
+                })
+            except (json.JSONDecodeError, OSError):
+                continue
+        return sessions
+
+    def load_session(self, sid: str) -> dict | None:
+        p = self._session_path(sid)
+        if not p.exists():
+            return None
+        try:
+            return json.loads(p.read_text("utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return None
+
+    def save_session(self, data: dict) -> str:
+        sid = data.get("id") or str(uuid.uuid4())[:12]
+        data["id"] = sid
+        data["updated_at"] = datetime.now().isoformat(timespec="seconds")
+        if not data.get("created_at"):
+            data["created_at"] = data["updated_at"]
+        self._session_path(sid).write_text(
+            json.dumps(data, ensure_ascii=False), encoding="utf-8"
+        )
+        return sid
+
+    def delete_session(self, sid: str) -> bool:
+        p = self._session_path(sid)
+        if p.exists():
+            p.unlink()
+            return True
+        return False
+
+    # -- API operations -------------------------------------------------------
     def meta(self) -> dict:
-        return {"backend": self.backend.name, "model": self.backend.model,
-                "guideline": Path(self.guideline_path).name}
+        return {
+            "backend": self.backend.name,
+            "model": getattr(self.backend, "model", "N/A"),
+            "guideline": Path(self.guideline_path).name,
+            "version": "2.0.0",
+            "requires_model": getattr(self.backend, "requires_model", True),
+        }
+
+    def health(self) -> dict:
+        return self.backend.health_check()
+
+    def available_backends(self) -> list[dict]:
+        from .backends import list_backends
+        return [{"name": b} for b in list_backends() if b != "auto"]
+
+    def analytics(self) -> dict:
+        if not self._last_checklist:
+            return AnalyticsSnapshot().to_dict() if hasattr(AnalyticsSnapshot, 'to_dict') else {
+                "total_requirements": 0,
+                "by_section": {},
+                "mandatory_count": 0,
+                "optional_count": 0,
+                "coverage_pct": 0.0,
+                "section_heatmap": {},
+            }
+        snap = AnalyticsSnapshot.from_checklist(
+            self._last_checklist,
+            total_clauses=len(self.coach.clauses),
+        )
+        return {
+            "total_requirements": snap.total_requirements,
+            "by_section": snap.by_section,
+            "mandatory_count": snap.mandatory_count,
+            "optional_count": snap.optional_count,
+            "coverage_pct": snap.coverage_pct,
+            "section_heatmap": snap.section_heatmap,
+        }
 
     def tender_start(self, item: str) -> dict:
         plan = self.coach.plan_interview(item)
@@ -49,16 +143,49 @@ class WebUI:
         write_checklist(checklist.tender_info, checklist.requirements,
                         self.out_dir / name, self.template_path)
         self.generated.add(name)
-        return {"file": name, "download": f"/api/download/{name}",
-                "count": len(checklist.requirements),
-                "unverified": checklist.unverified_refs,
-                "added_core": checklist.added_core_sections,
-                "tender_info": checklist.tender_info.__dict__}
+        self._last_checklist = checklist.requirements
+        return {
+            "file": name,
+            "download": f"/api/download/{name}",
+            "count": len(checklist.requirements),
+            "unverified": checklist.unverified_refs,
+            "added_core": checklist.added_core_sections,
+            "tender_info": checklist.tender_info.__dict__,
+            "requirements": [
+                {"ref": r.ref, "section": r.section,
+                 "requirement": r.requirement, "mandatory": r.mandatory}
+                for r in checklist.requirements
+            ],
+        }
 
+    def export_csv(self) -> str:
+        if not self._last_checklist:
+            return ""
+        import csv
+        import io
+        buf = io.StringIO()
+        w = csv.writer(buf)
+        w.writerow(["Ref", "Section", "Requirement", "M/O"])
+        for r in self._last_checklist:
+            w.writerow([r.ref, r.section, r.requirement, r.mandatory])
+        return buf.getvalue()
+
+    def export_json(self) -> list[dict]:
+        if not self._last_checklist:
+            return []
+        return [
+            {"ref": r.ref, "section": r.section,
+             "requirement": r.requirement, "mandatory": r.mandatory}
+            for r in self._last_checklist
+        ]
+
+    # -- server ---------------------------------------------------------------
     def serve(self, port: int = 8765, open_browser: bool = True) -> None:
         server = self.make_server(port)
         url = f"http://127.0.0.1:{server.server_address[1]}/"
-        print(f"Purchasing Coach web UI: {url}  (Ctrl+C to stop)")
+        print(f"Purchasing Coach v2.0  {url}  (Ctrl+C to stop)")
+        print(f"  Backend:  {self.backend.name} ({getattr(self.backend, 'model', 'N/A')})")
+        print(f"  Guideline: {Path(self.guideline_path).name}")
         if open_browser:
             threading.Timer(0.3, lambda: webbrowser.open(url)).start()
         try:
@@ -76,25 +203,48 @@ class WebUI:
 
 
 class _Handler(BaseHTTPRequestHandler):
-    webui: WebUI  # set by WebUI.make_server
+    webui: WebUI
     protocol_version = "HTTP/1.1"
 
-    def log_message(self, fmt, *args):  # keep the terminal quiet
+    def log_message(self, fmt, *args):
         pass
 
-    # -- routing -------------------------------------------------------------
+    # -- routing --------------------------------------------------------------
     def do_GET(self):
-        if self.path in ("/", "/index.html"):
+        path = self.path.split("?")[0]
+        if path in ("/", "/index.html"):
             body = PAGE.encode("utf-8")
             self._respond(200, "text/html; charset=utf-8", body)
-        elif self.path == "/api/meta":
+        elif path == "/api/meta":
             self._json(200, self.webui.meta())
-        elif self.path.startswith("/api/download/"):
-            self._download(self.path[len("/api/download/"):])
+        elif path == "/api/health":
+            self._json(200, self.webui.health())
+        elif path == "/api/backends":
+            self._json(200, self.webui.available_backends())
+        elif path == "/api/sessions":
+            self._json(200, self.webui.list_sessions())
+        elif path.startswith("/api/sessions/"):
+            sid = path[len("/api/sessions/"):]
+            data = self.webui.load_session(sid)
+            if data:
+                self._json(200, data)
+            else:
+                self._json(404, {"error": "session not found"})
+        elif path == "/api/analytics":
+            self._json(200, self.webui.analytics())
+        elif path == "/api/export/csv":
+            csv_text = self.webui.export_csv()
+            self._respond(200, "text/csv; charset=utf-8",
+                          csv_text.encode("utf-8"))
+        elif path == "/api/export/json":
+            self._json(200, self.webui.export_json())
+        elif path.startswith("/api/download/"):
+            self._download(path[len("/api/download/"):])
         else:
             self._json(404, {"error": "not found"})
 
     def do_POST(self):
+        path = self.path.split("?")[0]
         try:
             length = int(self.headers.get("Content-Length") or 0)
             payload = json.loads(self.rfile.read(length) or b"{}")
@@ -102,27 +252,39 @@ class _Handler(BaseHTTPRequestHandler):
             self._json(400, {"error": "invalid JSON body"})
             return
         try:
-            if self.path == "/api/chat":
+            if path == "/api/chat":
                 self._chat(payload)
-            elif self.path == "/api/tender/start":
+            elif path == "/api/tender/start":
                 item = str(payload.get("item") or "").strip()
                 if not item:
                     self._json(400, {"error": "item description is required"})
                 else:
                     self._json(200, self.webui.tender_start(item))
-            elif self.path == "/api/tender/finish":
+            elif path == "/api/tender/finish":
                 item = str(payload.get("item") or "").strip()
                 answers = payload.get("answers") or []
                 if not item or not isinstance(answers, list):
                     self._json(400, {"error": "item and answers are required"})
                 else:
                     self._json(200, self.webui.tender_finish(item, answers))
+            elif path == "/api/sessions":
+                sid = self.webui.save_session(payload)
+                self._json(200, {"id": sid})
             else:
                 self._json(404, {"error": "not found"})
-        except Exception as exc:  # surface LLM/backend errors to the page
+        except Exception as exc:
             self._json(500, {"error": str(exc)})
 
-    # -- handlers ------------------------------------------------------------
+    def do_DELETE(self):
+        path = self.path.split("?")[0]
+        if path.startswith("/api/sessions/"):
+            sid = path[len("/api/sessions/"):]
+            ok = self.webui.delete_session(sid)
+            self._json(200 if ok else 404, {"ok": ok})
+        else:
+            self._json(404, {"error": "not found"})
+
+    # -- handlers -------------------------------------------------------------
     def _chat(self, payload: dict):
         messages = payload.get("messages") or []
         if not messages:
@@ -136,7 +298,7 @@ class _Handler(BaseHTTPRequestHandler):
         try:
             for text in self.webui.coach.answer(messages):
                 self._chunk(text.encode("utf-8"))
-        except BrokenPipeError:  # client hit Stop / closed the tab
+        except BrokenPipeError:
             return
         except Exception as exc:
             try:
@@ -144,7 +306,7 @@ class _Handler(BaseHTTPRequestHandler):
             except BrokenPipeError:
                 return
         try:
-            self._chunk(b"")  # terminating chunk
+            self._chunk(b"")
         except BrokenPipeError:
             pass
 
@@ -172,7 +334,7 @@ class _Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    # -- plumbing ------------------------------------------------------------
+    # -- plumbing -------------------------------------------------------------
     def _respond(self, status: int, ctype: str, body: bytes):
         self.send_response(status)
         self.send_header("Content-Type", ctype)
@@ -180,550 +342,844 @@ class _Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _json(self, status: int, data: dict):
+    def _json(self, status: int, data):
         self._respond(status, "application/json; charset=utf-8",
-                      json.dumps(data).encode("utf-8"))
+                      json.dumps(data, ensure_ascii=False).encode("utf-8"))
 
 
+# =============================================================================
+# SINGLE-PAGE APPLICATION
+# =============================================================================
 PAGE = r"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="light dark">
+<meta name="color-scheme" content="dark light">
 <title>Purchasing Coach</title>
 <script>
-  // Set the theme before first paint to avoid a flash.
-  (function () {
-    try {
-      var t = localStorage.getItem('pc-theme');
-      if (!t) t = matchMedia('(prefers-color-scheme: dark)').matches
-                   ? 'dark' : 'light';
-      document.documentElement.dataset.theme = t;
-    } catch (e) { document.documentElement.dataset.theme = 'light'; }
-  })();
+(function(){
+  try{var t=localStorage.getItem('pc-theme');
+  if(!t)t=matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light';
+  document.documentElement.dataset.theme=t;}catch(e){document.documentElement.dataset.theme='dark';}
+})();
 </script>
 <style>
-  :root {
-    --bg:#eef1f5; --panel:#ffffff; --panel-2:#f6f8fb; --ink:#15202b;
-    --muted:#566676; --border:#d8e0e9; --accent:#1f4e78; --accent-2:#2e75b6;
-    --accent-ink:#ffffff; --me:#e6f0fb; --me-border:#cfe0f3; --sys:#fff6e3;
-    --sys-border:#efdfb6; --err:#b42318; --code:#eef1f5; --ring:#2e75b6;
-    --shadow:0 1px 2px rgba(16,24,40,.06), 0 2px 6px rgba(16,24,40,.05);
-    --radius:14px;
-  }
-  :root[data-theme="dark"] {
-    --bg:#0e1319; --panel:#161d26; --panel-2:#1b2530; --ink:#e8eef4;
-    --muted:#a3b3c2; --border:#27333f; --accent:#3f84c6; --accent-2:#5aa0e0;
-    --accent-ink:#08101a; --me:#16263a; --me-border:#264056; --sys:#2c2611;
-    --sys-border:#4a3f18; --err:#ff8a7a; --code:#0c1219; --ring:#5aa0e0;
-    --shadow:0 1px 2px rgba(0,0,0,.5), 0 3px 10px rgba(0,0,0,.35);
-  }
-  * { box-sizing:border-box; }
-  html, body { height:100%; }
-  body { margin:0; background:var(--bg); color:var(--ink);
-         font:15px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
-         display:flex; flex-direction:column;
-         -webkit-font-smoothing:antialiased; }
-  .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px;
-             overflow:hidden; clip:rect(0,0,0,0); border:0; }
-
-  header { background:var(--panel); border-bottom:1px solid var(--border);
-           padding:10px 16px; display:flex; align-items:center; gap:12px;
-           position:sticky; top:0; z-index:5; }
-  .brand { display:flex; align-items:center; gap:11px; min-width:0; }
-  .logo { width:34px; height:34px; flex:none; border-radius:9px;
-          background:linear-gradient(135deg,var(--accent),var(--accent-2));
-          color:#fff; display:grid; place-items:center; font-size:18px;
-          box-shadow:var(--shadow); }
-  .brand h1 { font-size:16px; margin:0; line-height:1.1; }
-  .brand .meta { font-size:12px; color:var(--muted); display:block;
-                 white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-                 max-width:62vw; }
-  header .spacer { flex:1; }
-  .icon { width:40px; height:40px; flex:none; border-radius:10px;
-          border:1px solid var(--border); background:var(--panel-2);
-          color:var(--ink); font-size:17px; cursor:pointer; line-height:1; }
-  .icon:hover { border-color:var(--accent-2); }
-
-  #log { flex:1; overflow-y:auto; padding:20px 16px 8px; scroll-behavior:smooth; }
-  .thread { max-width:820px; margin:0 auto; display:flex; flex-direction:column;
-            gap:14px; }
-  .msg { padding:11px 14px 12px; border-radius:var(--radius);
-         background:var(--panel); border:1px solid var(--border);
-         box-shadow:var(--shadow); overflow-wrap:anywhere; }
-  .msg.me { background:var(--me); border-color:var(--me-border);
-            align-self:flex-end; max-width:88%; }
-  .msg.sys { background:var(--sys); border-color:var(--sys-border); }
-  .msg .who { display:flex; align-items:center; gap:8px; margin-bottom:5px; }
-  .msg .av { width:22px; height:22px; flex:none; border-radius:6px;
-             display:grid; place-items:center; font-size:11px; font-weight:700;
-             color:#fff; background:var(--accent); }
-  .msg.me .av { background:var(--accent-2); }
-  .msg.sys .av { background:var(--sys-border); color:var(--ink); }
-  .msg .name { font-size:11.5px; font-weight:700; color:var(--muted);
-               text-transform:uppercase; letter-spacing:.04em; }
-  .msg .copy { margin-left:auto; border:0; background:transparent;
-               color:var(--muted); cursor:pointer; font-size:12px;
-               padding:3px 7px; border-radius:7px; }
-  .msg .copy:hover { background:var(--panel-2); color:var(--ink); }
-  .msg .body { white-space:pre-wrap; }
-  .msg .body.md { white-space:normal; }
-  .msg .body.streaming::after { content:"▍"; margin-left:1px;
-       animation:blink 1s steps(2) infinite; color:var(--accent-2); }
-  @keyframes blink { 50% { opacity:0; } }
-
-  .md p { margin:0 0 9px; } .md p:last-child { margin-bottom:0; }
-  .md ul, .md ol { margin:0 0 9px; padding-left:22px; }
-  .md li { margin:3px 0; }
-  .md .h { font-weight:700; color:var(--accent); margin:11px 0 5px;
-           font-size:15px; }
-  .md code { background:var(--code); border-radius:5px; padding:1px 5px;
-             font:13px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace; }
-  .md pre { background:var(--code); border:1px solid var(--border);
-            border-radius:9px; padding:11px 13px; overflow-x:auto; margin:0 0 9px;
-            font:13px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace; }
-  .md table { border-collapse:collapse; margin:5px 0 9px; font-size:14px;
-              display:block; overflow-x:auto; }
-  .md th, .md td { border:1px solid var(--border); padding:6px 11px;
-                   text-align:left; vertical-align:top; }
-  .md th { background:var(--accent); color:#fff; font-weight:600; }
-  .md tr:nth-child(even) td { background:var(--panel-2); }
-
-  a.dl { display:inline-flex; align-items:center; gap:7px; margin-top:9px;
-         padding:9px 15px; min-height:40px; background:var(--accent);
-         color:#fff; border-radius:10px; text-decoration:none; font-weight:600;
-         box-shadow:var(--shadow); }
-  a.dl:hover { background:var(--accent-2); }
-  .warn { color:var(--err); font-weight:600; }
-  .stopnote { color:var(--muted); font-size:12px; margin-top:6px;
-              font-style:italic; }
-
-  footer { padding:10px 16px calc(12px + env(safe-area-inset-bottom));
-           background:var(--panel); border-top:1px solid var(--border); }
-  .bar { max-width:820px; margin:0 auto; display:flex; gap:9px;
-         align-items:flex-end; }
-  textarea { flex:1; resize:none; padding:11px 13px; border-radius:12px;
-             border:1px solid var(--border); background:var(--panel-2);
-             color:var(--ink); font:inherit; min-height:48px; max-height:170px;
-             overflow-y:auto; }
-  textarea:focus-visible { outline:2px solid var(--ring); outline-offset:1px;
-             border-color:transparent; }
-  .btns { display:flex; gap:8px; }
-  button { font:inherit; font-weight:600; cursor:pointer; border-radius:12px;
-           min-height:48px; padding:0 18px; border:1px solid transparent; }
-  button:focus-visible { outline:2px solid var(--ring); outline-offset:1px; }
-  #send { background:var(--accent); color:#fff; }
-  #send:hover { background:var(--accent-2); }
-  #send.stop { background:var(--err); }
-  #tender.ghost { background:var(--panel); color:var(--accent);
-                  border-color:var(--border); }
-  #tender.ghost:hover { border-color:var(--accent-2); }
-  button:disabled { opacity:.45; cursor:default; }
-  .hint { max-width:820px; margin:7px auto 0; font-size:12px;
-          color:var(--muted); text-align:center; }
-
-  @media (max-width:560px) {
-    .brand h1 { font-size:15px; }
-    .btns { flex-direction:column; }
-    .hint { text-align:left; }
-  }
-  @media (prefers-reduced-motion:reduce) {
-    * { scroll-behavior:auto !important; animation:none !important; }
-  }
+/* ===== DESIGN TOKENS ===== */
+:root{
+  --bg-0:#0b0e14;--bg-1:#111520;--bg-2:#181d2a;--bg-3:#1f2637;--bg-4:#272f42;
+  --tx-0:#e8ecf4;--tx-1:#b0b8c9;--tx-2:#7882a0;--tx-3:#4a5270;
+  --ac:#4f8ff7;--ac-2:#6ba3ff;--ac-bg:rgba(79,143,247,.12);
+  --green:#34d399;--green-bg:rgba(52,211,153,.12);
+  --amber:#fbbf24;--amber-bg:rgba(251,191,36,.12);
+  --red:#f87171;--red-bg:rgba(248,113,113,.12);
+  --border:rgba(255,255,255,.06);--border-2:rgba(255,255,255,.1);
+  --shadow:0 2px 8px rgba(0,0,0,.4);--shadow-lg:0 8px 32px rgba(0,0,0,.5);
+  --r-sm:6px;--r-md:10px;--r-lg:16px;--r-xl:20px;
+  --sp-1:4px;--sp-2:8px;--sp-3:12px;--sp-4:16px;--sp-5:24px;--sp-6:32px;
+  --font:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  --mono:ui-monospace,'SF Mono','Cascadia Code','Fira Code',Consolas,monospace;
+  --tr-fast:150ms cubic-bezier(.4,0,.2,1);--tr-norm:250ms cubic-bezier(.4,0,.2,1);
+  --sidebar-w:240px;--topbar-h:52px;
+}
+[data-theme="light"]{
+  --bg-0:#f0f2f7;--bg-1:#f7f8fb;--bg-2:#ffffff;--bg-3:#f0f2f7;--bg-4:#e4e7ef;
+  --tx-0:#1a1f33;--tx-1:#4a5270;--tx-2:#7882a0;--tx-3:#b0b8c9;
+  --ac:#2e6fd1;--ac-2:#4f8ff7;--ac-bg:rgba(46,111,209,.08);
+  --green:#059669;--green-bg:rgba(5,150,105,.08);
+  --amber:#d97706;--amber-bg:rgba(217,119,6,.08);
+  --red:#dc2626;--red-bg:rgba(220,38,38,.08);
+  --border:rgba(0,0,0,.06);--border-2:rgba(0,0,0,.1);
+  --shadow:0 1px 3px rgba(0,0,0,.08);--shadow-lg:0 4px 16px rgba(0,0,0,.1);
+}
+/* ===== RESET & BASE ===== */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+html,body{height:100%;overflow:hidden;}
+body{font:14px/1.6 var(--font);color:var(--tx-0);background:var(--bg-0);
+  -webkit-font-smoothing:antialiased;display:flex;flex-direction:column;}
+button{font:inherit;cursor:pointer;border:0;background:0;color:inherit;}
+input,textarea,select{font:inherit;color:inherit;background:0;border:0;outline:0;}
+a{color:var(--ac);text-decoration:none;}
+::-webkit-scrollbar{width:6px;height:6px;}
+::-webkit-scrollbar-track{background:0 0;}
+::-webkit-scrollbar-thumb{background:var(--border-2);border-radius:3px;}
+::-webkit-scrollbar-thumb:hover{background:var(--tx-3);}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;
+  overflow:hidden;clip:rect(0,0,0,0);border:0;}
+/* ===== LAYOUT ===== */
+.app{display:flex;flex:1;overflow:hidden;}
+.sidebar{width:var(--sidebar-w);background:var(--bg-1);border-right:1px solid var(--border);
+  display:flex;flex-direction:column;transition:width var(--tr-norm);flex-shrink:0;overflow:hidden;z-index:10;}
+.sidebar.collapsed{width:56px;}
+.sidebar.collapsed .nav-label,.sidebar.collapsed .session-list,.sidebar.collapsed .sidebar-header span{display:none;}
+.sidebar.collapsed .sidebar-header{justify-content:center;}
+.sidebar.collapsed .nav-item{justify-content:center;padding:var(--sp-3);}
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0;}
+/* ===== TOPBAR ===== */
+.topbar{height:var(--topbar-h);background:var(--bg-1);border-bottom:1px solid var(--border);
+  display:flex;align-items:center;padding:0 var(--sp-4);gap:var(--sp-3);flex-shrink:0;}
+.topbar .menu-btn{width:36px;height:36px;border-radius:var(--r-sm);display:grid;place-items:center;
+  font-size:18px;transition:background var(--tr-fast);}
+.topbar .menu-btn:hover{background:var(--bg-3);}
+.topbar .brand{display:flex;align-items:center;gap:var(--sp-2);font-weight:700;font-size:15px;}
+.topbar .brand .logo{width:28px;height:28px;border-radius:var(--r-sm);
+  background:linear-gradient(135deg,var(--ac),var(--ac-2));color:#fff;
+  display:grid;place-items:center;font-size:14px;font-weight:800;}
+.pill{display:inline-flex;align-items:center;gap:var(--sp-1);padding:3px 10px;
+  border-radius:20px;font-size:11px;font-weight:600;letter-spacing:.02em;}
+.pill.ok{background:var(--green-bg);color:var(--green);}
+.pill.err{background:var(--red-bg);color:var(--red);}
+.pill.info{background:var(--ac-bg);color:var(--ac);}
+.pill .dot{width:6px;height:6px;border-radius:50%;background:currentColor;}
+.topbar .spacer{flex:1;}
+/* ===== SIDEBAR NAV ===== */
+.sidebar-header{padding:var(--sp-4);display:flex;align-items:center;gap:var(--sp-2);
+  font-weight:700;font-size:13px;color:var(--tx-2);text-transform:uppercase;letter-spacing:.06em;}
+.nav-item{display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-2) var(--sp-4);
+  margin:2px var(--sp-2);border-radius:var(--r-sm);color:var(--tx-1);
+  font-size:13px;font-weight:500;transition:all var(--tr-fast);cursor:pointer;}
+.nav-item:hover{background:var(--bg-3);color:var(--tx-0);}
+.nav-item.active{background:var(--ac-bg);color:var(--ac);font-weight:600;}
+.nav-item .icon{width:20px;text-align:center;font-size:15px;flex-shrink:0;}
+.session-list{flex:1;overflow-y:auto;padding:var(--sp-2) 0;border-top:1px solid var(--border);margin-top:var(--sp-2);}
+.session-item{display:flex;align-items:center;gap:var(--sp-2);padding:var(--sp-2) var(--sp-4);
+  margin:1px var(--sp-2);border-radius:var(--r-sm);color:var(--tx-2);
+  font-size:12px;cursor:pointer;transition:background var(--tr-fast);}
+.session-item:hover{background:var(--bg-3);color:var(--tx-0);}
+.session-item .title{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.session-item .del{opacity:0;font-size:14px;color:var(--red);transition:opacity var(--tr-fast);}
+.session-item:hover .del{opacity:1;}
+/* ===== CONTENT VIEWS ===== */
+.view{display:none;flex:1;overflow-y:auto;padding:var(--sp-5);}
+.view.active{display:flex;flex-direction:column;}
+.view-title{font-size:22px;font-weight:700;margin-bottom:var(--sp-5);color:var(--tx-0);}
+/* ===== DASHBOARD ===== */
+.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:var(--sp-4);margin-bottom:var(--sp-5);}
+.metric-card{background:var(--bg-2);border:1px solid var(--border);border-radius:var(--r-lg);
+  padding:var(--sp-5);display:flex;flex-direction:column;gap:var(--sp-1);}
+.metric-card .label{font-size:12px;font-weight:600;color:var(--tx-2);text-transform:uppercase;letter-spacing:.04em;}
+.metric-card .value{font-size:32px;font-weight:800;color:var(--tx-0);line-height:1.1;}
+.metric-card .sub{font-size:12px;color:var(--tx-2);}
+.charts{display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-4);}
+.chart-card{background:var(--bg-2);border:1px solid var(--border);border-radius:var(--r-lg);padding:var(--sp-5);}
+.chart-card h3{font-size:14px;font-weight:600;color:var(--tx-1);margin-bottom:var(--sp-3);}
+.chart-card canvas{width:100%;max-height:260px;}
+.empty-state{text-align:center;padding:var(--sp-6);color:var(--tx-2);font-size:14px;}
+.empty-state .icon{font-size:48px;margin-bottom:var(--sp-3);opacity:.4;}
+/* ===== CHAT ===== */
+.chat-view{padding:0 !important;display:none;flex-direction:column;overflow:hidden;}
+.chat-view.active{display:flex;}
+.chat-log{flex:1;overflow-y:auto;padding:var(--sp-4) var(--sp-5);scroll-behavior:smooth;}
+.chat-thread{max-width:820px;margin:0 auto;display:flex;flex-direction:column;gap:var(--sp-3);}
+.msg{padding:var(--sp-3) var(--sp-4);border-radius:var(--r-lg);background:var(--bg-2);
+  border:1px solid var(--border);max-width:88%;overflow-wrap:anywhere;}
+.msg.me{background:var(--ac-bg);border-color:rgba(79,143,247,.15);align-self:flex-end;}
+.msg.sys{background:var(--amber-bg);border-color:rgba(251,191,36,.15);}
+.msg .who{display:flex;align-items:center;gap:var(--sp-2);margin-bottom:var(--sp-1);}
+.msg .av{width:24px;height:24px;border-radius:var(--r-sm);display:grid;place-items:center;
+  font-size:11px;font-weight:700;color:#fff;background:var(--ac);flex-shrink:0;}
+.msg.me .av{background:var(--ac-2);}
+.msg.sys .av{background:var(--amber);color:var(--bg-0);}
+.msg .name{font-size:11px;font-weight:700;color:var(--tx-2);text-transform:uppercase;letter-spacing:.04em;}
+.msg .copy{margin-left:auto;border:0;background:transparent;color:var(--tx-2);
+  cursor:pointer;font-size:11px;padding:2px 8px;border-radius:var(--r-sm);transition:all var(--tr-fast);}
+.msg .copy:hover{background:var(--bg-3);color:var(--tx-0);}
+.msg .body{font-size:14px;line-height:1.6;}
+.msg .body.md{white-space:normal;}
+.msg .body.streaming::after{content:"";display:inline-block;width:2px;height:1em;
+  background:var(--ac);margin-left:2px;animation:blink .8s steps(2) infinite;vertical-align:text-bottom;}
+@keyframes blink{50%{opacity:0;}}
+.msg .toolbar{display:flex;gap:var(--sp-1);margin-top:var(--sp-2);opacity:0;transition:opacity var(--tr-fast);}
+.msg:hover .toolbar{opacity:1;}
+.msg .toolbar button{padding:2px 8px;border-radius:var(--r-sm);font-size:11px;color:var(--tx-2);transition:all var(--tr-fast);}
+.msg .toolbar button:hover{background:var(--bg-3);color:var(--tx-0);}
+/* Markdown in messages */
+.md p{margin:0 0 8px;}.md p:last-child{margin:0;}
+.md ul,.md ol{margin:0 0 8px;padding-left:20px;}.md li{margin:2px 0;}
+.md .h{font-weight:700;color:var(--ac);margin:10px 0 4px;font-size:14px;}
+.md code{background:var(--bg-3);border-radius:4px;padding:1px 5px;font:12px/1.4 var(--mono);}
+.md pre{background:var(--bg-3);border:1px solid var(--border);border-radius:var(--r-md);
+  padding:var(--sp-3);overflow-x:auto;margin:0 0 8px;font:12px/1.5 var(--mono);}
+.md table{border-collapse:collapse;margin:4px 0 8px;font-size:13px;display:block;overflow-x:auto;}
+.md th,.md td{border:1px solid var(--border);padding:5px 10px;text-align:left;vertical-align:top;}
+.md th{background:var(--ac);color:#fff;font-weight:600;}
+.md tr:nth-child(even) td{background:var(--bg-3);}
+a.dl{display:inline-flex;align-items:center;gap:var(--sp-2);margin-top:var(--sp-2);
+  padding:var(--sp-2) var(--sp-4);background:var(--ac);color:#fff;border-radius:var(--r-md);
+  font-weight:600;font-size:13px;box-shadow:var(--shadow);transition:background var(--tr-fast);}
+a.dl:hover{background:var(--ac-2);}
+.warn{color:var(--red);font-weight:600;}
+.stopnote{color:var(--tx-2);font-size:12px;margin-top:var(--sp-1);font-style:italic;}
+/* Chat input */
+.chat-footer{padding:var(--sp-3) var(--sp-5) calc(var(--sp-3) + env(safe-area-inset-bottom));
+  background:var(--bg-1);border-top:1px solid var(--border);}
+.chat-bar{max-width:820px;margin:0 auto;display:flex;gap:var(--sp-2);align-items:flex-end;}
+.chat-bar textarea{flex:1;resize:none;padding:var(--sp-3) var(--sp-4);border-radius:var(--r-lg);
+  border:1px solid var(--border);background:var(--bg-2);color:var(--tx-0);
+  min-height:44px;max-height:160px;overflow-y:auto;transition:border-color var(--tr-fast);}
+.chat-bar textarea:focus{border-color:var(--ac);outline:none;}
+.chat-bar .btns{display:flex;gap:var(--sp-2);}
+.btn{font:inherit;font-weight:600;cursor:pointer;border-radius:var(--r-md);
+  min-height:44px;padding:0 var(--sp-4);border:1px solid transparent;
+  transition:all var(--tr-fast);font-size:13px;}
+.btn-primary{background:var(--ac);color:#fff;}
+.btn-primary:hover{background:var(--ac-2);}
+.btn-primary.stop{background:var(--red);}
+.btn-ghost{background:var(--bg-2);color:var(--tx-1);border-color:var(--border);}
+.btn-ghost:hover{border-color:var(--ac);color:var(--ac);}
+.btn:disabled{opacity:.4;cursor:default;}
+.chat-hint{max-width:820px;margin:var(--sp-1) auto 0;font-size:11px;color:var(--tx-3);text-align:center;}
+/* Interview progress */
+.interview-progress{max-width:820px;margin:0 auto var(--sp-3);padding:var(--sp-3) 0;display:none;}
+.interview-progress.active{display:block;}
+.progress-bar{display:flex;align-items:center;gap:0;overflow-x:auto;padding:0 var(--sp-2);}
+.progress-step{display:flex;flex-direction:column;align-items:center;gap:2px;min-width:32px;}
+.progress-step .dot{width:10px;height:10px;border-radius:50%;background:var(--bg-4);
+  border:2px solid var(--border-2);transition:all var(--tr-fast);}
+.progress-step.done .dot{background:var(--green);border-color:var(--green);}
+.progress-step.current .dot{background:var(--ac);border-color:var(--ac);animation:pulse 1.5s ease-in-out infinite;}
+.progress-step .num{font-size:9px;color:var(--tx-3);}
+.progress-line{flex:1;height:2px;background:var(--border);min-width:8px;}
+.progress-line.done{background:var(--green);}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(79,143,247,.4);}50%{box-shadow:0 0 0 6px rgba(79,143,247,0);}}
+/* ===== CHECKLIST VIEWER ===== */
+.checklist-view{padding:0 !important;overflow:hidden;}
+.cl-toolbar{display:flex;gap:var(--sp-3);padding:var(--sp-4) var(--sp-5);
+  border-bottom:1px solid var(--border);flex-wrap:wrap;align-items:center;flex-shrink:0;}
+.cl-toolbar select,.cl-toolbar input[type=text]{padding:var(--sp-2) var(--sp-3);
+  border-radius:var(--r-sm);border:1px solid var(--border);background:var(--bg-2);
+  color:var(--tx-0);font-size:12px;min-width:140px;}
+.cl-toolbar select:focus,.cl-toolbar input[type=text]:focus{border-color:var(--ac);outline:none;}
+.cl-table-wrap{flex:1;overflow:auto;}
+.cl-table{width:100%;border-collapse:collapse;font-size:13px;}
+.cl-table th{position:sticky;top:0;background:var(--bg-1);border-bottom:2px solid var(--border-2);
+  padding:var(--sp-2) var(--sp-3);text-align:left;font-weight:700;font-size:11px;
+  text-transform:uppercase;letter-spacing:.04em;color:var(--tx-2);z-index:2;white-space:nowrap;}
+.cl-table td{padding:var(--sp-2) var(--sp-3);border-bottom:1px solid var(--border);
+  vertical-align:top;max-width:500px;}
+.cl-table tr:hover td{background:var(--bg-3);}
+.cl-table .badge{display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600;}
+.cl-table .badge.m{background:var(--red-bg);color:var(--red);}
+.cl-table .badge.o{background:var(--green-bg);color:var(--green);}
+.cl-table .drag-handle{cursor:grab;color:var(--tx-3);user-select:none;}
+.cl-table .drag-handle:active{cursor:grabbing;}
+.cl-table [contenteditable=true]{outline:1px solid var(--ac);border-radius:3px;padding:1px 3px;background:var(--ac-bg);}
+/* ===== SETTINGS ===== */
+.settings-grid{display:grid;gap:var(--sp-4);max-width:640px;}
+.setting-group{background:var(--bg-2);border:1px solid var(--border);border-radius:var(--r-lg);padding:var(--sp-5);}
+.setting-group h3{font-size:14px;font-weight:700;margin-bottom:var(--sp-3);color:var(--tx-0);}
+.setting-row{display:flex;align-items:center;gap:var(--sp-3);margin-bottom:var(--sp-3);}
+.setting-row:last-child{margin-bottom:0;}
+.setting-row label{font-size:13px;color:var(--tx-1);min-width:120px;}
+.setting-row select,.setting-row input{padding:var(--sp-2) var(--sp-3);border-radius:var(--r-sm);
+  border:1px solid var(--border);background:var(--bg-3);color:var(--tx-0);font-size:13px;flex:1;max-width:300px;}
+.setting-row select:focus,.setting-row input:focus{border-color:var(--ac);outline:none;}
+/* ===== RESPONSIVE ===== */
+@media(max-width:768px){
+  .sidebar{position:fixed;left:0;top:0;bottom:0;z-index:20;box-shadow:var(--shadow-lg);}
+  .sidebar.collapsed{width:0;border:0;}
+  .charts{grid-template-columns:1fr;}
+  .metrics{grid-template-columns:1fr 1fr;}
+}
+@media(max-width:480px){
+  .metrics{grid-template-columns:1fr;}
+  .chat-bar .btns{flex-direction:column;}
+}
+@media(prefers-reduced-motion:reduce){
+  *{scroll-behavior:auto!important;animation:none!important;transition:none!important;}
+}
 </style>
 </head>
 <body>
-<header>
-  <div class="brand">
-    <span class="logo" aria-hidden="true">▦</span>
-    <div>
-      <h1>Purchasing Coach</h1>
-      <span class="meta" id="meta">connecting…</span>
+<div class="app">
+<!-- SIDEBAR -->
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-header">
+    <span class="icon" style="font-size:16px">&#9638;</span>
+    <span>Purchasing Coach</span>
+  </div>
+  <nav>
+    <div class="nav-item active" data-view="dashboard" onclick="switchView('dashboard')">
+      <span class="icon">&#9636;</span><span class="nav-label">Dashboard</span>
+    </div>
+    <div class="nav-item" data-view="chat" onclick="switchView('chat')">
+      <span class="icon">&#128172;</span><span class="nav-label">Chat</span>
+    </div>
+    <div class="nav-item" data-view="checklist" onclick="switchView('checklist')">
+      <span class="icon">&#9745;</span><span class="nav-label">Checklist</span>
+    </div>
+    <div class="nav-item" data-view="settings" onclick="switchView('settings')">
+      <span class="icon">&#9881;</span><span class="nav-label">Settings</span>
+    </div>
+  </nav>
+  <div class="session-list" id="sessionList"></div>
+</aside>
+<!-- MAIN -->
+<div class="main">
+  <!-- TOPBAR -->
+  <header class="topbar">
+    <button class="menu-btn" onclick="toggleSidebar()" aria-label="Toggle sidebar">&#9776;</button>
+    <div class="brand">
+      <span class="logo">PC</span>
+      <span>Purchasing Coach</span>
+    </div>
+    <span class="pill ok" id="backendPill"><span class="dot"></span><span id="backendLabel">connecting</span></span>
+    <span class="pill info" id="guidelinePill"><span class="dot"></span><span id="guidelineLabel">...</span></span>
+    <span class="spacer"></span>
+    <button class="menu-btn" onclick="toggleTheme()" id="themeBtn" aria-label="Toggle theme">&#9790;</button>
+  </header>
+  <!-- DASHBOARD -->
+  <div class="view active" id="view-dashboard">
+    <h2 class="view-title">Dashboard</h2>
+    <div class="metrics" id="metricsGrid">
+      <div class="metric-card"><span class="label">Total Requirements</span><span class="value" id="mTotal">0</span><span class="sub">across all sections</span></div>
+      <div class="metric-card"><span class="label">Mandatory</span><span class="value" id="mMand" style="color:var(--red)">0</span><span class="sub">must comply</span></div>
+      <div class="metric-card"><span class="label">Optional</span><span class="value" id="mOpt" style="color:var(--green)">0</span><span class="sub">recommended</span></div>
+      <div class="metric-card"><span class="label">Coverage</span><span class="value" id="mCov">0%</span><span class="sub">guideline sections</span></div>
+    </div>
+    <div class="charts">
+      <div class="chart-card"><h3>Mandatory vs Optional</h3><canvas id="pieChart" height="220"></canvas></div>
+      <div class="chart-card"><h3>Requirements by Section</h3><canvas id="barChart" height="220"></canvas></div>
+    </div>
+    <div class="empty-state" id="dashEmpty" style="display:none">
+      <div class="icon">&#128203;</div>
+      <p>No checklist generated yet. Use the Chat to create a tender checklist,<br>then return here to view analytics.</p>
     </div>
   </div>
-  <span class="spacer"></span>
-  <button id="theme" class="icon" type="button"
-          aria-label="Toggle dark mode" title="Toggle light / dark">🌙</button>
-</header>
-
-<main id="log" role="log" aria-live="polite" aria-label="Conversation"
-      aria-relevant="additions text">
-  <div class="thread" id="thread"></div>
-</main>
-
-<footer>
-  <div class="bar">
-    <textarea id="box" rows="1" autofocus aria-label="Message"
-              placeholder="Ask about the guideline…"></textarea>
-    <div class="btns">
-      <button id="send" type="button" aria-label="Send message">Send</button>
-      <button id="tender" class="ghost" type="button">Tender checklist</button>
+  <!-- CHAT -->
+  <div class="view chat-view" id="view-chat">
+    <div class="chat-log" id="chatLog" role="log" aria-live="polite">
+      <div class="interview-progress" id="interviewProgress"></div>
+      <div class="chat-thread" id="chatThread"></div>
+    </div>
+    <div class="chat-footer">
+      <div class="chat-bar">
+        <textarea id="chatBox" rows="1" autofocus placeholder="Ask about the guideline..."
+                  aria-label="Message"></textarea>
+        <div class="btns">
+          <button class="btn btn-primary" id="sendBtn" onclick="handleSend()">Send</button>
+          <button class="btn btn-ghost" id="tenderBtn" onclick="startTender()">Tender Checklist</button>
+        </div>
+      </div>
+      <div class="chat-hint">Enter to send &middot; Shift+Enter new line &middot; Esc stops reply &middot; /tender starts interview</div>
     </div>
   </div>
-  <div class="hint">Enter to send · Shift+Enter for a new line · Esc stops a
-    reply. “Tender checklist” (or typing /tender) starts a short interview and
-    produces an Excel checklist from your template; “cancel” aborts,
-    “restart” starts over.</div>
-</footer>
+  <!-- CHECKLIST -->
+  <div class="view checklist-view" id="view-checklist">
+    <div class="cl-toolbar">
+      <input type="text" id="clSearch" placeholder="Search requirements..." oninput="filterChecklist()">
+      <select id="clSection" onchange="filterChecklist()"><option value="">All Sections</option></select>
+      <select id="clMO" onchange="filterChecklist()">
+        <option value="">M &amp; O</option><option value="M">Mandatory</option><option value="O">Optional</option>
+      </select>
+      <span style="flex:1"></span>
+      <button class="btn btn-ghost" onclick="exportCSV()">&#8681; CSV</button>
+      <button class="btn btn-ghost" onclick="exportJSON()">&#8681; JSON</button>
+      <span id="clCount" style="font-size:12px;color:var(--tx-2)"></span>
+    </div>
+    <div class="cl-table-wrap">
+      <table class="cl-table" id="clTable">
+        <thead><tr>
+          <th style="width:30px"></th><th>Ref</th><th>Section</th>
+          <th>Requirement</th><th>M/O</th>
+        </tr></thead>
+        <tbody id="clBody"></tbody>
+      </table>
+      <div class="empty-state" id="clEmpty">
+        <div class="icon">&#128203;</div>
+        <p>No checklist generated yet. Generate one via Chat &rarr; Tender Checklist.</p>
+      </div>
+    </div>
+  </div>
+  <!-- SETTINGS -->
+  <div class="view" id="view-settings">
+    <h2 class="view-title">Settings</h2>
+    <div class="settings-grid">
+      <div class="setting-group">
+        <h3>Backend</h3>
+        <div class="setting-row">
+          <label>Active backend</label>
+          <span id="setBackend" style="font-weight:600;color:var(--ac)"></span>
+        </div>
+        <div class="setting-row">
+          <label>Model</label>
+          <span id="setModel" style="color:var(--tx-1)"></span>
+        </div>
+        <div class="setting-row">
+          <label>Requires model</label>
+          <span id="setReqModel" style="color:var(--tx-1)"></span>
+        </div>
+      </div>
+      <div class="setting-group">
+        <h3>Guideline</h3>
+        <div class="setting-row">
+          <label>Document</label>
+          <span id="setGuideline" style="color:var(--tx-1)"></span>
+        </div>
+      </div>
+      <div class="setting-group">
+        <h3>Available Backends</h3>
+        <div id="setBackendList" style="font-size:13px;color:var(--tx-1);line-height:2"></div>
+      </div>
+      <div class="setting-group">
+        <h3>About</h3>
+        <div style="font-size:13px;color:var(--tx-1);line-height:1.8">
+          <p>Purchasing Coach v2.0 &mdash; An AI-powered procurement assistant that works with
+          LLM backends (local or cloud) and built-in retrieval backends (keyword, BM25, template)
+          for zero-dependency operation.</p>
+          <p style="margin-top:8px">Supports any OpenAI-compatible API: OpenAI, Groq, Together AI,
+          Google Gemini, LM Studio, Ollama, vLLM, and more.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
 <div id="sr" class="sr-only" role="status" aria-live="assertive"></div>
 
 <script>
-const log = document.getElementById('log');
-const thread = document.getElementById('thread');
-const box = document.getElementById('box');
-const sendBtn = document.getElementById('send');
-const tenderBtn = document.getElementById('tender');
-const themeBtn = document.getElementById('theme');
-const sr = document.getElementById('sr');
-let history = [];           // chat turns sent to the model
-let tender = null;          // active interview state, or null
-let busy = false;
-let aborter = null;         // AbortController for the in-flight request
+/* ===== STATE ===== */
+const S={
+  view:'dashboard',sidebarOpen:true,theme:'dark',
+  backend:{name:'',model:'',requires_model:true},
+  guideline:'',history:[],tender:null,busy:false,aborter:null,
+  checklist:null,sessions:[],currentSession:null,
+};
 
-// ---- theme ---------------------------------------------------------------
-function paintTheme() {
-  themeBtn.textContent =
-    document.documentElement.dataset.theme === 'dark' ? '☀️' : '🌙';
+/* ===== THEME ===== */
+function initTheme(){
+  S.theme=document.documentElement.dataset.theme||'dark';
+  document.getElementById('themeBtn').textContent=S.theme==='dark'?'\u2600':'\u263E';
 }
-function toggleTheme() {
-  const next = document.documentElement.dataset.theme === 'dark'
-             ? 'light' : 'dark';
-  document.documentElement.dataset.theme = next;
-  try { localStorage.setItem('pc-theme', next); } catch (e) {}
-  paintTheme();
+function toggleTheme(){
+  S.theme=S.theme==='dark'?'light':'dark';
+  document.documentElement.dataset.theme=S.theme;
+  try{localStorage.setItem('pc-theme',S.theme);}catch(e){}
+  document.getElementById('themeBtn').textContent=S.theme==='dark'?'\u2600':'\u263E';
+  redrawCharts();
 }
-paintTheme();
-themeBtn.addEventListener('click', toggleTheme);
 
-// ---- meta ----------------------------------------------------------------
-fetch('/api/meta').then(r => r.json()).then(m => {
-  document.getElementById('meta').textContent =
-    `${m.guideline} · ${m.backend} (${m.model})`;
-}).catch(() => { document.getElementById('meta').textContent = 'offline'; });
+/* ===== SIDEBAR ===== */
+function toggleSidebar(){
+  S.sidebarOpen=!S.sidebarOpen;
+  document.getElementById('sidebar').classList.toggle('collapsed',!S.sidebarOpen);
+}
 
-// ---- markdown ------------------------------------------------------------
-// Renders model replies: paragraphs, bullet/numbered lists, ### headings,
-// **bold**, `code`, ``` fences and | tables |. Everything is HTML-escaped
-// first; only our own tags are emitted. Code fences are buffered and only
-// rendered once the closing fence arrives, so streaming never shows raw ```.
-function md(src) {
-  const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;')
-                    .replace(/>/g, '&gt;');
-  const inline = s => esc(s)
-    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/`([^`]+)`/g, '<code>$1</code>');
-  let html = '', list = null, table = false, fence = false, fenceBuf = [];
-  const closeList = () => { if (list) { html += `</${list}>`; list = null; } };
-  const closeTable = () => { if (table) { html += '</table>'; table = false; } };
-  for (const line of src.split('\n')) {
-    if (fence) {
-      if (/^\s*```/.test(line)) {
-        html += '<pre>' + esc(fenceBuf.join('\n')) + '</pre>';
-        fence = false; fenceBuf = [];
-      } else fenceBuf.push(line);
-      continue;
-    }
-    if (/^\s*```/.test(line)) { closeList(); closeTable(); fence = true; continue; }
-    if (/^\s*\|.*\|\s*$/.test(line)) {
-      closeList();
-      if (/^\s*\|[\s:|-]+\|\s*$/.test(line)) continue;  // |---|---| separator
-      const cells = line.trim().replace(/^\|/, '').replace(/\|$/, '')
-                        .split('|').map(c => inline(c.trim()));
-      const tag = table ? 'td' : 'th';
-      if (!table) { html += '<table>'; table = true; }
-      html += '<tr>' + cells.map(c => `<${tag}>${c}</${tag}>`).join('') + '</tr>';
-      continue;
-    }
+/* ===== NAVIGATION ===== */
+function switchView(name){
+  S.view=name;
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+  const el=document.getElementById('view-'+name);
+  if(el)el.classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(n=>{
+    n.classList.toggle('active',n.dataset.view===name);
+  });
+  if(name==='dashboard')refreshAnalytics();
+  if(name==='chat')document.getElementById('chatBox').focus();
+}
+
+/* ===== META ===== */
+async function loadMeta(){
+  try{
+    const r=await fetch('/api/meta');const m=await r.json();
+    S.backend={name:m.backend,model:m.model,requires_model:m.requires_model};
+    S.guideline=m.guideline;
+    document.getElementById('backendLabel').textContent=m.backend;
+    document.getElementById('guidelineLabel').textContent=m.guideline;
+    document.getElementById('setBackend').textContent=m.backend;
+    document.getElementById('setModel').textContent=m.model;
+    document.getElementById('setReqModel').textContent=m.requires_model?'Yes':'No';
+    document.getElementById('setGuideline').textContent=m.guideline;
+  }catch(e){
+    document.getElementById('backendPill').className='pill err';
+    document.getElementById('backendLabel').textContent='offline';
+  }
+  // Health check
+  try{
+    const h=await fetch('/api/health');const d=await h.json();
+    const pill=document.getElementById('backendPill');
+    pill.className='pill '+(d.status==='ok'?'ok':'err');
+  }catch(e){}
+  // Backends list
+  try{
+    const r=await fetch('/api/backends');const list=await r.json();
+    document.getElementById('setBackendList').innerHTML=
+      list.map(b=>'<span class="pill '+(b.name===S.backend.name?'ok':'info')+
+        '" style="margin:2px">'+b.name+'</span>').join(' ');
+  }catch(e){}
+}
+
+/* ===== SESSIONS ===== */
+async function loadSessions(){
+  try{
+    const r=await fetch('/api/sessions');S.sessions=await r.json();
+    const el=document.getElementById('sessionList');
+    el.innerHTML=S.sessions.map(s=>
+      `<div class="session-item" onclick="loadSession('${s.id}')">
+        <span class="title">${esc(s.title)}</span>
+        <span style="font-size:10px;color:var(--tx-3)">${s.message_count||0}</span>
+        <button class="del" onclick="event.stopPropagation();delSession('${s.id}')" title="Delete">&times;</button>
+      </div>`).join('');
+  }catch(e){}
+}
+async function saveSession(){
+  if(!S.history.length)return;
+  const title=S.history.find(m=>m.role==='user')?.content.slice(0,40)||'Session';
+  const data={id:S.currentSession,title,messages:S.history.map(m=>({
+    role:m.role,content:m.content,timestamp:new Date().toISOString()})),
+    backend:S.backend.name,guideline_path:S.guideline};
+  try{const r=await fetch('/api/sessions',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(data)});const d=await r.json();S.currentSession=d.id;loadSessions();}catch(e){}
+}
+async function loadSession(id){
+  try{const r=await fetch('/api/sessions/'+id);const d=await r.json();
+    S.currentSession=id;S.history=d.messages||[];
+    document.getElementById('chatThread').innerHTML='';
+    S.history.forEach(m=>addMsg(m.role==='user'?'you':'coach',m.role==='user'?'me':'',m.content));
+    switchView('chat');
+  }catch(e){}
+}
+async function delSession(id){
+  try{await fetch('/api/sessions/'+id,{method:'DELETE'});loadSessions();}catch(e){}
+}
+
+/* ===== MARKDOWN ===== */
+function md(src){
+  const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const inline=s=>esc(s).replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>')
+    .replace(/`([^`]+)`/g,'<code>$1</code>');
+  let html='',list=null,table=false,fence=false,fenceBuf=[];
+  const closeList=()=>{if(list){html+=`</${list}>`;list=null;}};
+  const closeTable=()=>{if(table){html+='</table>';table=false;}};
+  for(const line of src.split('\n')){
+    if(fence){if(/^\s*```/.test(line)){html+='<pre>'+esc(fenceBuf.join('\n'))+'</pre>';fence=false;fenceBuf=[];}else fenceBuf.push(line);continue;}
+    if(/^\s*```/.test(line)){closeList();closeTable();fence=true;continue;}
+    if(/^\s*\|.*\|\s*$/.test(line)){closeList();if(/^\s*\|[\s:|-]+\|\s*$/.test(line))continue;
+      const cells=line.trim().replace(/^\|/,'').replace(/\|$/,'').split('|').map(c=>inline(c.trim()));
+      const tag=table?'td':'th';if(!table){html+='<table>';table=true;}
+      html+='<tr>'+cells.map(c=>`<${tag}>${c}</${tag}>`).join('')+'</tr>';continue;}
     closeTable();
-    const h = line.match(/^#{1,6}\s+(.*)/);
-    const li = line.match(/^\s*[-*+]\s+(.*)/);
-    const num = line.match(/^\s*\d+[.)]\s+(.*)/);
-    if (h) { closeList(); html += '<div class="h">' + inline(h[1]) + '</div>'; }
-    else if (li) {
-      if (list !== 'ul') { closeList(); html += '<ul>'; list = 'ul'; }
-      html += '<li>' + inline(li[1]) + '</li>';
-    } else if (num) {
-      if (list !== 'ol') { closeList(); html += '<ol>'; list = 'ol'; }
-      html += '<li>' + inline(num[1]) + '</li>';
-    } else if (!line.trim()) { closeList(); }
-    else { closeList(); html += '<p>' + inline(line) + '</p>'; }
+    const h=line.match(/^#{1,6}\s+(.*)/);const li=line.match(/^\s*[-*+]\s+(.*)/);const num=line.match(/^\s*\d+[.)]\s+(.*)/);
+    if(h){closeList();html+='<div class="h">'+inline(h[1])+'</div>';}
+    else if(li){if(list!=='ul'){closeList();html+='<ul>';list='ul';}html+='<li>'+inline(li[1])+'</li>';}
+    else if(num){if(list!=='ol'){closeList();html+='<ol>';list='ol';}html+='<li>'+inline(num[1])+'</li>';}
+    else if(!line.trim()){closeList();}
+    else{closeList();html+='<p>'+inline(line)+'</p>';}
   }
-  if (fence) html += '<pre>' + esc(fenceBuf.join('\n')) + '</pre>';
-  closeList(); closeTable();
-  return html;
+  if(fence)html+='<pre>'+esc(fenceBuf.join('\n'))+'</pre>';
+  closeList();closeTable();return html;
 }
 
-// ---- messages ------------------------------------------------------------
-function nearBottom() {
-  return log.scrollHeight - log.scrollTop - log.clientHeight < 90;
-}
-function keepDown(stick) { if (stick) log.scrollTop = log.scrollHeight; }
+/* ===== CHAT ===== */
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+const chatLog=document.getElementById('chatLog');
+const chatThread=document.getElementById('chatThread');
+const chatBox=document.getElementById('chatBox');
+const sendBtn=document.getElementById('sendBtn');
+const tenderBtn=document.getElementById('tenderBtn');
+const sr=document.getElementById('sr');
 
-function add(who, cls, text) {
-  const stick = nearBottom();
-  const div = document.createElement('div');
-  div.className = 'msg ' + cls;
-  const head = document.createElement('div');
-  head.className = 'who';
-  const av = document.createElement('span');
-  av.className = 'av'; av.setAttribute('aria-hidden', 'true');
-  av.textContent = who === 'you' ? 'U' : (who === 'coach' ? 'PC' : 'i');
-  const name = document.createElement('span');
-  name.className = 'name'; name.textContent = who;
-  head.append(av, name);
-  if (who === 'coach') {
-    const copy = document.createElement('button');
-    copy.className = 'copy'; copy.type = 'button';
-    copy.textContent = 'Copy'; copy.setAttribute('aria-label', 'Copy reply');
-    head.appendChild(copy);
+function nearBottom(){return chatLog.scrollHeight-chatLog.scrollTop-chatLog.clientHeight<80;}
+function keepDown(s){if(s)chatLog.scrollTop=chatLog.scrollHeight;}
+
+function addMsg(who,cls,text){
+  const stick=nearBottom();
+  const div=document.createElement('div');div.className='msg '+(cls||'');
+  const head=document.createElement('div');head.className='who';
+  const av=document.createElement('span');av.className='av';av.setAttribute('aria-hidden','true');
+  av.textContent=who==='you'?'U':(who==='coach'?'PC':'i');
+  const name=document.createElement('span');name.className='name';name.textContent=who;
+  head.append(av,name);
+  if(who==='coach'){
+    const copy=document.createElement('button');copy.className='copy';copy.type='button';
+    copy.textContent='Copy';copy.setAttribute('aria-label','Copy reply');head.appendChild(copy);
   }
-  const body = document.createElement('div');
-  body.className = 'body';
-  body.textContent = text;
-  div.append(head, body);
-  thread.appendChild(div);
-  keepDown(stick);
+  const body=document.createElement('div');body.className='body';body.textContent=text;
+  div.append(head,body);chatThread.appendChild(div);keepDown(stick);
+  // Attach copy
+  const cpBtn=div.querySelector('.copy');
+  if(cpBtn)cpBtn.addEventListener('click',()=>{
+    const t=body.innerText;navigator.clipboard?.writeText(t).then(
+      ()=>{cpBtn.textContent='Copied';setTimeout(()=>cpBtn.textContent='Copy',1200);},
+      ()=>{cpBtn.textContent='Failed';setTimeout(()=>cpBtn.textContent='Copy',1200);});
+  });
   return body;
 }
 
-function attachCopy(body) {
-  const btn = body.parentElement.querySelector('.copy');
-  if (btn) btn.addEventListener('click', () => {
-    const t = body.innerText;
-    (navigator.clipboard
-        ? navigator.clipboard.writeText(t)
-        : Promise.reject()).then(
-      () => { btn.textContent = 'Copied'; setTimeout(() => btn.textContent = 'Copy', 1200); },
-      () => { btn.textContent = 'Copy failed'; setTimeout(() => btn.textContent = 'Copy', 1200); });
+function setBusy(b){
+  S.busy=b;tenderBtn.disabled=b;
+  if(b){sendBtn.textContent='Stop';sendBtn.classList.add('stop');}
+  else{sendBtn.textContent='Send';sendBtn.classList.remove('stop');S.aborter=null;}
+}
+
+// Initial greeting
+addMsg('coach','sys','Hello! Ask me anything about the purchasing guideline, or click "Tender Checklist" to prepare a compliant tender document. I work with any backend — no LLM required.');
+
+async function chat(text){
+  addMsg('you','me',text);
+  S.history.push({role:'user',content:text});
+  const body=addMsg('coach','','');body.classList.add('streaming');
+  setBusy(true);const ac=S.aborter=new AbortController();
+  let full='';
+  try{
+    const resp=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({messages:S.history}),signal:ac.signal});
+    if(!resp.ok)throw new Error((await resp.json()).error||resp.status);
+    const reader=resp.body.getReader();const dec=new TextDecoder();
+    body.className='body md streaming';
+    for(;;){const{done,value}=await reader.read();if(done)break;
+      const stick=nearBottom();full+=dec.decode(value,{stream:true});
+      body.innerHTML=md(full);keepDown(stick);}
+    if(ac.signal.aborted)throw new DOMException('stopped','AbortError');
+    S.history.push({role:'assistant',content:full});
+    sr.textContent='Reply complete.';saveSession();
+  }catch(err){
+    if(err.name==='AbortError'||ac.signal.aborted){
+      if(full){body.innerHTML=md(full)+'<div class="stopnote">stopped</div>';S.history.push({role:'assistant',content:full});}
+      else body.innerHTML='<div class="stopnote">stopped</div>';
+    }else{
+      body.className='body';
+      body.innerHTML='<span class="warn">Request failed: '+esc(err.message)+'</span>';
+      S.history.pop();
+    }
+  }finally{body.classList.remove('streaming');setBusy(false);chatBox.focus();}
+}
+
+/* ===== TENDER INTERVIEW ===== */
+function startTender(){
+  if(S.busy)return;
+  const restarting=S.tender!==null;
+  S.tender={stage:'item',item:'',questions:[],answers:[]};
+  tenderBtn.textContent='Restart Interview';
+  addMsg('coach','sys',(restarting?'Interview restarted — what':'Tender checklist — what')+
+    ' do you want to buy? Describe the item or solution. (Type "cancel" to abort.)');
+  chatBox.placeholder='e.g. 200 laptops for the sales team';chatBox.focus();
+}
+function endTender(){
+  S.tender=null;tenderBtn.textContent='Tender Checklist';
+  chatBox.placeholder='Ask about the guideline...';
+  document.getElementById('interviewProgress').classList.remove('active');
+  document.getElementById('interviewProgress').innerHTML='';
+}
+function renderProgress(step,total){
+  const el=document.getElementById('interviewProgress');
+  el.classList.add('active');
+  let html='<div class="progress-bar">';
+  for(let i=0;i<total;i++){
+    const cls=i<step?'done':(i===step?'current':'');
+    html+=`<div class="progress-step ${cls}"><div class="dot"></div><div class="num">${i+1}</div></div>`;
+    if(i<total-1)html+=`<div class="progress-line ${i<step?'done':''}"></div>`;
+  }
+  html+='</div>';el.innerHTML=html;
+}
+function askNext(){
+  const i=S.tender.answers.length;
+  renderProgress(i,S.tender.questions.length);
+  addMsg('coach','sys',`[${i+1}/${S.tender.questions.length}] ${S.tender.questions[i].question}`);
+}
+
+async function tenderInput(text){
+  const word=text.toLowerCase();
+  if(word==='cancel'){endTender();addMsg('coach','sys','Tender flow cancelled.');return;}
+  if(word==='restart'||word==='/tender'){startTender();return;}
+  addMsg('you','me',text);
+  if(S.tender.stage==='item'){
+    S.tender.item=text;S.tender.stage='questions';
+    const note=addMsg('coach','sys','Planning the right questions for this purchase...');
+    setBusy(true);const ac=S.aborter=new AbortController();
+    try{
+      const resp=await fetch('/api/tender/start',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({item:S.tender.item}),signal:ac.signal});
+      const data=await resp.json();if(!resp.ok)throw new Error(data.error||resp.status);
+      S.tender.questions=data.questions;
+      note.textContent=`I have ${data.questions.length} questions. Answer briefly; reply "TBC" if unsure.`;
+      askNext();
+    }catch(err){
+      note.innerHTML=(err.name==='AbortError'||ac.signal.aborted)?'Interview stopped.':
+        '<span class="warn">Could not plan interview: '+esc(err.message)+'</span>';
+      endTender();
+    }finally{setBusy(false);chatBox.focus();}
+    return;
+  }
+  S.tender.answers.push([S.tender.questions[S.tender.answers.length].question,text||'TBC']);
+  renderProgress(S.tender.answers.length,S.tender.questions.length);
+  if(S.tender.answers.length<S.tender.questions.length){askNext();return;}
+  const note=addMsg('coach','sys','Building the compliance checklist... this may take a moment.');
+  setBusy(true);const ac=S.aborter=new AbortController();
+  try{
+    const resp=await fetch('/api/tender/finish',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({item:S.tender.item,answers:S.tender.answers}),signal:ac.signal});
+    const data=await resp.json();if(!resp.ok)throw new Error(data.error||resp.status);
+    S.checklist=data;
+    const unv=(data.unverified||[]).length?` <span class="warn">${data.unverified.length} clause(s) could not be verified (${data.unverified.join(', ')}).</span>`:'';
+    const added=(data.added_core||[]).length?` Sections ${data.added_core.join(', ')} added automatically for full coverage.`:'';
+    note.innerHTML=`Done — <strong>${data.count}</strong> requirements for "${esc(data.tender_info.purchase_item)}".${added}${unv}`;
+    const a=document.createElement('a');a.className='dl';a.href=data.download;
+    a.textContent='\u2B07 '+data.file;note.parentElement.appendChild(a);
+    sr.textContent='Checklist ready: '+data.count+' requirements.';
+    renderChecklist(data.requirements);
+    refreshAnalytics();saveSession();
+  }catch(err){
+    note.innerHTML=(err.name==='AbortError'||ac.signal.aborted)?'Checklist generation stopped.':
+      '<span class="warn">Checklist generation failed: '+esc(err.message)+'</span>';
+  }finally{endTender();setBusy(false);chatBox.focus();}
+}
+
+/* ===== CHECKLIST VIEWER ===== */
+let clData=[];
+function renderChecklist(reqs){
+  clData=reqs||[];
+  document.getElementById('clEmpty').style.display=clData.length?'none':'block';
+  document.getElementById('clTable').style.display=clData.length?'':'none';
+  // Populate section filter
+  const sections=[...new Set(clData.map(r=>r.section))].sort();
+  const sel=document.getElementById('clSection');
+  sel.innerHTML='<option value="">All Sections</option>'+
+    sections.map(s=>`<option value="${esc(s)}">${esc(s)}</option>`).join('');
+  filterChecklist();
+}
+function filterChecklist(){
+  const q=(document.getElementById('clSearch').value||'').toLowerCase();
+  const sec=document.getElementById('clSection').value;
+  const mo=document.getElementById('clMO').value;
+  const filtered=clData.filter(r=>{
+    if(sec&&r.section!==sec)return false;
+    if(mo&&r.mandatory!==mo)return false;
+    if(q&&!(r.ref+' '+r.section+' '+r.requirement).toLowerCase().includes(q))return false;
+    return true;
+  });
+  const body=document.getElementById('clBody');
+  body.innerHTML=filtered.map((r,i)=>
+    `<tr draggable="true" data-idx="${i}">
+      <td class="drag-handle" title="Drag to reorder">&#9776;</td>
+      <td style="white-space:nowrap;font-weight:600">${esc(r.ref)}</td>
+      <td>${esc(r.section)}</td>
+      <td contenteditable="true" data-field="requirement" data-idx="${i}"
+          onblur="updateReq(${i},this.textContent)">${esc(r.requirement)}</td>
+      <td><span class="badge ${r.mandatory==='M'?'m':'o'}">${r.mandatory==='M'?'Mandatory':'Optional'}</span></td>
+    </tr>`).join('');
+  document.getElementById('clCount').textContent=filtered.length+' of '+clData.length+' requirements';
+  setupDragDrop();
+}
+function updateReq(idx,text){
+  if(clData[idx])clData[idx].requirement=text.trim();
+}
+function setupDragDrop(){
+  const body=document.getElementById('clBody');
+  let dragRow=null;
+  body.querySelectorAll('tr').forEach(row=>{
+    row.addEventListener('dragstart',e=>{dragRow=row;row.style.opacity='0.4';});
+    row.addEventListener('dragend',()=>{if(dragRow)dragRow.style.opacity='1';dragRow=null;});
+    row.addEventListener('dragover',e=>{e.preventDefault();});
+    row.addEventListener('drop',e=>{
+      e.preventDefault();if(!dragRow||dragRow===row)return;
+      const from=parseInt(dragRow.dataset.idx);const to=parseInt(row.dataset.idx);
+      const [item]=clData.splice(from,1);clData.splice(to,0,item);filterChecklist();
+    });
+  });
+}
+async function exportCSV(){window.location='/api/export/csv';}
+async function exportJSON(){
+  try{const r=await fetch('/api/export/json');const d=await r.json();
+    const blob=new Blob([JSON.stringify(d,null,2)],{type:'application/json'});
+    const url=URL.createObjectURL(blob);const a=document.createElement('a');
+    a.href=url;a.download='checklist.json';a.click();URL.revokeObjectURL(url);}catch(e){}
+}
+
+/* ===== ANALYTICS & CHARTS ===== */
+async function refreshAnalytics(){
+  try{
+    const r=await fetch('/api/analytics');const d=await r.json();
+    document.getElementById('mTotal').textContent=d.total_requirements;
+    document.getElementById('mMand').textContent=d.mandatory_count;
+    document.getElementById('mOpt').textContent=d.optional_count;
+    document.getElementById('mCov').textContent=d.coverage_pct+'%';
+    document.getElementById('dashEmpty').style.display=d.total_requirements?'none':'block';
+    document.getElementById('metricsGrid').style.display=d.total_requirements?'':'none';
+    document.querySelector('.charts').style.display=d.total_requirements?'':'none';
+    if(d.total_requirements)drawCharts(d);
+  }catch(e){}
+}
+function drawCharts(d){
+  drawPie(d.mandatory_count,d.optional_count);
+  drawBars(d.by_section);
+}
+function redrawCharts(){refreshAnalytics();}
+
+function drawPie(mand,opt){
+  const c=document.getElementById('pieChart');if(!c)return;
+  const ctx=c.getContext('2d');const w=c.width=c.offsetWidth;const h=c.height=220;
+  ctx.clearRect(0,0,w,h);
+  const total=mand+opt;if(!total)return;
+  const cx=w/2,cy=h/2,r=Math.min(w,h)/2-20;
+  const data=[{v:mand,c:'#f87171',l:'Mandatory'},{v:opt,c:'#34d399',l:'Optional'}];
+  let start=-Math.PI/2;
+  data.forEach(d=>{
+    const angle=(d.v/total)*Math.PI*2;
+    ctx.beginPath();ctx.moveTo(cx,cy);ctx.arc(cx,cy,r,start,start+angle);ctx.closePath();
+    ctx.fillStyle=d.c;ctx.fill();
+    // Label
+    const mid=start+angle/2;const lx=cx+Math.cos(mid)*(r*0.6);const ly=cy+Math.sin(mid)*(r*0.6);
+    ctx.fillStyle='#fff';ctx.font='bold 13px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText(d.v,lx,ly);
+    start+=angle;
+  });
+  // Legend
+  let lx=10,ly=h-10;
+  data.forEach(d=>{
+    ctx.fillStyle=d.c;ctx.fillRect(lx,ly-8,10,10);
+    ctx.fillStyle=getComputedStyle(document.documentElement).getPropertyValue('--tx-1');
+    ctx.font='11px system-ui';ctx.textAlign='left';ctx.fillText(`${d.l} (${d.v})`,lx+14,ly);
+    lx+=100;
+  });
+}
+function drawBars(bySection){
+  const c=document.getElementById('barChart');if(!c)return;
+  const ctx=c.getContext('2d');const w=c.width=c.offsetWidth;
+  const entries=Object.entries(bySection).sort((a,b)=>b[1]-a[1]).slice(0,10);
+  const maxVal=Math.max(...entries.map(e=>e[1]),1);
+  const barH=22,gap=6,pad=140;
+  const h=entries.length*(barH+gap)+20;
+  c.height=Math.max(h,100);
+  ctx.clearRect(0,0,w,c.height);
+  const txtColor=getComputedStyle(document.documentElement).getPropertyValue('--tx-1');
+  entries.forEach(([name,val],i)=>{
+    const y=i*(barH+gap)+10;const barW=((w-pad-20)*val/maxVal);
+    // Bar
+    ctx.fillStyle='rgba(79,143,247,0.7)';
+    ctx.beginPath();ctx.roundRect(pad,y,Math.max(barW,4),barH,4);ctx.fill();
+    // Label
+    ctx.fillStyle=txtColor;ctx.font='11px system-ui';ctx.textAlign='right';ctx.textBaseline='middle';
+    ctx.fillText(name.length>18?name.slice(0,18)+'...':name,pad-8,y+barH/2);
+    // Value
+    ctx.fillStyle='#fff';ctx.textAlign='left';ctx.font='bold 11px system-ui';
+    ctx.fillText(val,pad+barW+6,y+barH/2);
   });
 }
 
-function announce(msg) { sr.textContent = msg; }
-
-function setBusy(b) {
-  busy = b;
-  tenderBtn.disabled = b;
-  if (b) {
-    sendBtn.textContent = 'Stop';
-    sendBtn.classList.add('stop');
-    sendBtn.setAttribute('aria-label', 'Stop the current request');
-  } else {
-    sendBtn.textContent = 'Send';
-    sendBtn.classList.remove('stop');
-    sendBtn.setAttribute('aria-label', 'Send message');
-    aborter = null;
-  }
-}
-
-function stopRequest() {
-  if (aborter) { announce('Stopping…'); aborter.abort(); }
-}
-
-add('coach', 'sys',
-    'Hello! Ask me anything about the purchasing guideline, or click ' +
-    '“Tender checklist” to prepare a tender for something you want to buy.');
-
-// ---- chat ----------------------------------------------------------------
-async function chat(text) {
-  add('you', 'me', text);
-  history.push({role: 'user', content: text});
-  const body = add('coach', '', '');
-  body.classList.add('streaming');
-  setBusy(true);
-  const ac = aborter = new AbortController();
-  let full = '';
-  try {
-    const resp = await fetch('/api/chat', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({messages: history}), signal: ac.signal,
-    });
-    if (!resp.ok) throw new Error((await resp.json()).error || resp.status);
-    const reader = resp.body.getReader();
-    const dec = new TextDecoder();
-    body.className = 'body md streaming';
-    for (;;) {
-      const {done, value} = await reader.read();
-      if (done) break;
-      const stick = nearBottom();
-      full += dec.decode(value, {stream: true});
-      body.innerHTML = md(full);
-      keepDown(stick);
-    }
-    if (ac.signal.aborted) throw new DOMException('stopped', 'AbortError');
-    history.push({role: 'assistant', content: full});
-    announce('Reply complete.');
-  } catch (err) {
-    if (err.name === 'AbortError' || ac.signal.aborted) {
-      // Keep whatever streamed so far so the conversation stays coherent.
-      if (full) {
-        body.innerHTML = md(full) + '<div class="stopnote">stopped</div>';
-        history.push({role: 'assistant', content: full});
-      } else {
-        body.innerHTML = '<div class="stopnote">stopped</div>';
-      }
-    } else {
-      body.className = 'body';
-      body.innerHTML = '<span class="warn">Request failed: ' +
-        err.message.replace(/</g, '&lt;') + '</span>';
-      history.pop();
-    }
-  } finally {
-    body.classList.remove('streaming');
-    attachCopy(body);
-    setBusy(false);
-    box.focus();
-  }
-}
-
-// ---- tender interview ----------------------------------------------------
-function startTender() {
-  if (busy) return;
-  const restarting = tender !== null;
-  tender = {stage: 'item', item: '', questions: [], answers: []};
-  tenderBtn.textContent = 'Restart interview';
-  add('coach', 'sys',
-      (restarting ? 'Interview restarted — what' : 'Tender checklist — what') +
-      ' do you want to buy? ' +
-      'Describe the item or solution in one or two sentences. ' +
-      '(Type “cancel” to abort or “restart” to start over.)');
-  box.placeholder = 'e.g. 200 laptops for the sales team';
-  box.focus();
-}
-
-function endTender() {
-  tender = null;
-  tenderBtn.textContent = 'Tender checklist';
-  box.placeholder = 'Ask about the guideline…';
-}
-
-function askNext() {
-  const i = tender.answers.length;
-  add('coach', 'sys',
-      `[${i + 1}/${tender.questions.length}] ${tender.questions[i].question}`);
-}
-
-async function tenderInput(text) {
-  const word = text.toLowerCase();
-  if (word === 'cancel') {
-    endTender();
-    add('coach', 'sys', 'Tender flow cancelled.');
-    return;
-  }
-  if (word === 'restart' || word === '/tender') {
-    startTender();
-    return;
-  }
-  add('you', 'me', text);
-  if (tender.stage === 'item') {
-    tender.item = text;
-    tender.stage = 'questions';
-    const note = add('coach', 'sys',
-                     'Thinking about the right questions for this purchase…');
-    setBusy(true);
-    const ac = aborter = new AbortController();
-    try {
-      const resp = await fetch('/api/tender/start', {
-        method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({item: tender.item}), signal: ac.signal,
-      });
-      const data = await resp.json();
-      if (!resp.ok) throw new Error(data.error || resp.status);
-      tender.questions = data.questions;
-      note.textContent = `I have ${data.questions.length} questions. ` +
-                         'Answer briefly; reply “TBC” if you don’t know yet.';
-      askNext();
-    } catch (err) {
-      note.innerHTML = (err.name === 'AbortError' || ac.signal.aborted)
-        ? 'Interview stopped.'
-        : '<span class="warn">Could not plan the interview: ' +
-          err.message.replace(/</g, '&lt;') + '</span>';
-      endTender();
-    } finally {
-      setBusy(false);
-      box.focus();
-    }
-    return;
-  }
-  // answering questions
-  tender.answers.push([tender.questions[tender.answers.length].question,
-                       text || 'TBC']);
-  if (tender.answers.length < tender.questions.length) {
-    askNext();
-    return;
-  }
-  const note = add('coach', 'sys',
-                   'Building the compliance checklist from the guideline… ' +
-                   'this can take a minute on a local model.');
-  setBusy(true);
-  const ac = aborter = new AbortController();
-  try {
-    const resp = await fetch('/api/tender/finish', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({item: tender.item, answers: tender.answers}),
-      signal: ac.signal,
-    });
-    const data = await resp.json();
-    if (!resp.ok) throw new Error(data.error || resp.status);
-    const unverified = (data.unverified || []).length
-        ? ` <span class="warn">${data.unverified.length} clause ` +
-          `reference(s) could not be matched to the guideline ` +
-          `(${data.unverified.join(', ')}) — please verify those rows.</span>`
-        : '';
-    const addedCore = (data.added_core || []).length
-        ? ` Guideline section(s) ${data.added_core.join(', ')} were ` +
-          `added automatically to ensure full coverage (cross-cutting ` +
-          `compliance plus sections your answers flagged as relevant).`
-        : '';
-    note.innerHTML = `Done — ${data.count} requirements for ` +
-        `“${data.tender_info.purchase_item}”.` + addedCore + unverified +
-        ' Vendors pick a Vendor Status (Compliant / Partially Compliant / ' +
-        'Non-Compliant / Not Applicable) from the dropdown and explain in ' +
-        'Vendor Remarks. The “Review & Approval” sheet tallies their ' +
-        'submission live (including mandatory non-compliant rows) for your ' +
-        'sign-off. Review the sheets before sending anything to vendors; ' +
-        'the guideline itself must not be shared externally.';
-    const a = document.createElement('a');
-    a.className = 'dl';
-    a.href = data.download;
-    a.textContent = '⬇ ' + data.file;
-    note.parentElement.appendChild(a);
-    announce('Checklist ready: ' + data.count + ' requirements.');
-  } catch (err) {
-    note.innerHTML = (err.name === 'AbortError' || ac.signal.aborted)
-      ? 'Checklist generation stopped.'
-      : '<span class="warn">Checklist generation failed: ' +
-        err.message.replace(/</g, '&lt;') + '</span>';
-  } finally {
-    endTender();
-    setBusy(false);
-    box.focus();
-  }
-}
-
-// ---- input plumbing ------------------------------------------------------
-function autoresize() {
-  box.style.height = 'auto';
-  box.style.height = Math.min(box.scrollHeight, 170) + 'px';
-}
-
-function submit() {
-  const text = box.value.trim();
-  if (!text || busy) return;
-  box.value = '';
-  autoresize();
-  if (tender) { tenderInput(text); return; }
-  if (text === '/tender') { startTender(); return; }
+/* ===== INPUT ===== */
+function autoresize(){chatBox.style.height='auto';chatBox.style.height=Math.min(chatBox.scrollHeight,160)+'px';}
+function submit(){
+  const text=chatBox.value.trim();if(!text||S.busy)return;
+  chatBox.value='';autoresize();
+  if(S.tender){tenderInput(text);return;}
+  if(text==='/tender'){startTender();return;}
   chat(text);
 }
-
-sendBtn.addEventListener('click', () => { if (busy) stopRequest(); else submit(); });
-tenderBtn.addEventListener('click', startTender);
-box.addEventListener('input', autoresize);
-box.addEventListener('keydown', e => {
-  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
-  else if (e.key === 'Escape' && busy) { e.preventDefault(); stopRequest(); }
+function handleSend(){if(S.busy){if(S.aborter)S.aborter.abort();}else submit();}
+chatBox.addEventListener('input',autoresize);
+chatBox.addEventListener('keydown',e=>{
+  if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();submit();}
+  else if(e.key==='Escape'&&S.busy){e.preventDefault();if(S.aborter)S.aborter.abort();}
 });
+
+/* ===== INIT ===== */
+initTheme();loadMeta();loadSessions();refreshAnalytics();
+// Health check every 30s
+setInterval(async()=>{try{const r=await fetch('/api/health');const d=await r.json();
+  const pill=document.getElementById('backendPill');
+  pill.className='pill '+(d.status==='ok'?'ok':'err');
+  document.getElementById('backendLabel').textContent=S.backend.name;}catch(e){}},30000);
 </script>
 </body>
 </html>

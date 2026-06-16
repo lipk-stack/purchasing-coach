@@ -3,17 +3,23 @@
 import re
 from datetime import date
 from pathlib import Path
+from typing import Callable
 
 from .excel import write_checklist
 from .llm import Coach
 
+# Callback signature: (current_step, total_steps, question_text)
+ProgressCallback = Callable[[int, int, str], None]
+
 
 def run_tender_flow(coach: Coach, template_path: str | Path | None,
                     out_dir: str | Path = ".",
-                    ask=input, say=print) -> Path | None:
+                    ask=input, say=print,
+                    on_progress: ProgressCallback | None = None) -> Path | None:
     """Run the question/answer flow and write the checklist workbook.
 
     ``ask``/``say`` are injectable for testing.
+    ``on_progress`` is called before each question with (step, total, question).
     """
     say("\n=== Tender checklist generator ===")
     item = ask("What do you want to buy? Describe the item/solution: ").strip()
@@ -26,6 +32,8 @@ def run_tender_flow(coach: Coach, template_path: str | Path | None,
 
     answers: list[tuple[str, str]] = []
     for i, q in enumerate(plan.questions, start=1):
+        if on_progress:
+            on_progress(i, len(plan.questions), q.question)
         reply = ask(f"[{i}/{len(plan.questions)}] {q.question}\n> ").strip()
         answers.append((q.question, reply or "TBC"))
 
