@@ -43,11 +43,14 @@ commits.
   reference `coach/backends.py` as a single file are stale w.r.t. that layout;
   the code is what's authoritative. All 115 tests (incl. the user's 19 embedded
   tests) pass on top of this iteration's changes.
-- **main sync correction (follow-up 8):** despite earlier entries claiming
-  "main synced", **origin/main and local main were both still at the initial
-  commit** (`95b5f6b`, 17 behind the dev branch) at the start of this run — the
-  fast-forward had never actually reached origin. Fixed this run: fast-forwarded
-  main to the dev branch and pushed origin/main. Confirm this holds next run.
+- **main sync (follow-up 8):** at the start of this run the *local* tracking
+  refs looked stale (local `main`/`origin/main` showed the initial commit
+  `95b5f6b`), but the real `origin/main` was at the user's latest commit
+  `22fc212` (the overhaul/embedded-SLM work had been pushed to main already).
+  Fast-forwarded main to the dev branch and pushed: `22fc212..b064cd2`. After
+  the push `origin/main == origin/claude/nice-ride-jhcjqj` (verified `0 0`).
+  Note for next run: don't trust a stale local `origin/main` ref — `git fetch`
+  first before judging the gap.
 - **Live LLM still unavailable** in this sandbox (no API key; local
   LM Studio/Ollama ports not reachable) — this layer is deterministic and
   verified on the real template, so it's valuable regardless of backend;
