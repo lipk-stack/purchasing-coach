@@ -41,6 +41,7 @@ ALL_BACKENDS = [
     "keyword",
     "template",
     "bm25",
+    "embedded",
 ]
 
 # Provider presets for the openai-compat backend.
@@ -63,6 +64,7 @@ def get_backend(
     model: str | None = None,
     api_key: str | None = None,
     provider: str | None = None,
+    model_path: str | None = None,
     log=print,
 ) -> BackendProtocol:
     """Build the requested backend, auto-detecting when ``kind='auto'``.
@@ -71,7 +73,7 @@ def get_backend(
     ----------
     kind : str
         Backend name: ``auto``, ``lmstudio``, ``ollama``, ``claude``,
-        ``keyword``, ``template``, or ``bm25``.
+        ``keyword``, ``template``, ``bm25``, or ``embedded``.
     base_url : str, optional
         Override the server URL (openai-compat backends only).
     model : str, optional
@@ -80,6 +82,8 @@ def get_backend(
         API key for cloud providers.
     provider : str, optional
         Provider preset for openai-compat backends (applies known base_url).
+    model_path : str, optional
+        Path to a local GGUF model file (embedded backend only).
     log : callable
         Logger function for status messages.
     """
@@ -124,6 +128,10 @@ def get_backend(
         from .bm25 import BM25Backend
 
         return BM25Backend()
+    if kind == "embedded":
+        from .embedded import EmbeddedBackend
+
+        return EmbeddedBackend(model_path=model_path)
 
     if kind != "auto":
         raise BackendError(f"unknown backend {kind!r}")
@@ -151,11 +159,25 @@ def get_backend(
         log("No local LLM server found — using the Claude API.")
         return AnthropicBackend(model or "claude-opus-4-8")
 
+    # Try embedded SLM if llama-cpp-python is installed and a model exists
+    try:
+        from .embedded import EmbeddedBackend
+
+        if EmbeddedBackend.is_available() and EmbeddedBackend.has_cached_model():
+            backend = EmbeddedBackend(model_path=model_path)
+            log(
+                f"Using embedded model '{backend.model}' (local GGUF). "
+                "No external server needed."
+            )
+            return backend
+    except (BackendError, ImportError):
+        pass
+
     # Final fallback: keyword backend (no LLM needed)
     log(
         "No LLM server detected — using the built-in keyword backend. "
-        "For AI-powered responses, start LM Studio or Ollama, or set "
-        "ANTHROPIC_API_KEY."
+        "For AI-powered responses, start LM Studio or Ollama, set "
+        "ANTHROPIC_API_KEY, or install llama-cpp-python with a GGUF model."
     )
     from .keyword import KeywordBackend
 

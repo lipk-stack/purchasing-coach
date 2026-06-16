@@ -29,7 +29,8 @@ def main(argv: list[str] | None = None) -> int:
         description="Chat with a purchasing guideline and generate tender "
                     "checklists from an Excel template. Works with a local "
                     "LLM via LM Studio or Ollama (no cloud account needed), "
-                    "any OpenAI-compatible API, the Claude API, or built-in "
+                    "any OpenAI-compatible API, the Claude API, a built-in "
+                    "embedded small language model (no server needed), or "
                     "keyword/template/BM25 backends (no model required).",
     )
     parser.add_argument("--guideline", "-g",
@@ -56,6 +57,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--api-key",
                         help="API key for cloud providers (openai-compat "
                              "backend)")
+    parser.add_argument("--model-path",
+                        help="Path to a local GGUF model file (embedded "
+                             "backend). Auto-downloads Qwen2.5-1.5B if "
+                             "omitted and no cached model exists.")
     parser.add_argument("--llm-model", "-m",
                         help="Model name (default: first model the local "
                              "server reports / claude-opus-4-8 for Claude)")
@@ -81,6 +86,7 @@ def main(argv: list[str] | None = None) -> int:
             model=args.llm_model,
             api_key=args.api_key,
             provider=args.provider,
+            model_path=args.model_path,
         )
     except BackendError as exc:
         print(f"Backend setup failed: {exc}", file=sys.stderr)
