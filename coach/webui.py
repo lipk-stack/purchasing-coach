@@ -148,6 +148,8 @@ class WebUI:
             "file": name,
             "download": f"/api/download/{name}",
             "count": len(checklist.requirements),
+            "mandatory": sum(1 for r in checklist.requirements
+                             if r.mandatory == "M"),
             "unverified": checklist.unverified_refs,
             "added_core": checklist.added_core_sections,
             "tender_info": checklist.tender_info.__dict__,
@@ -1013,7 +1015,8 @@ async function tenderInput(text){
     S.checklist=data;
     const unv=(data.unverified||[]).length?` <span class="warn">${data.unverified.length} clause(s) could not be verified (${data.unverified.join(', ')}).</span>`:'';
     const added=(data.added_core||[]).length?` Sections ${data.added_core.join(', ')} added automatically for full coverage.`:'';
-    note.innerHTML=`Done — <strong>${data.count}</strong> requirements for "${esc(data.tender_info.purchase_item)}".${added}${unv}`;
+    const mand=data.mandatory?` (<strong>${data.mandatory}</strong> mandatory)`:'';
+    note.innerHTML=`Done — <strong>${data.count}</strong> requirements${mand} for "${esc(data.tender_info.purchase_item)}".${added}${unv} The <strong>Review &amp; Approval</strong> sheet tallies the vendor's submission live (compliance rate and any mandatory non-compliant rows) for sign-off.`;
     const a=document.createElement('a');a.className='dl';a.href=data.download;
     a.textContent='\u2B07 '+data.file;note.parentElement.appendChild(a);
     sr.textContent='Checklist ready: '+data.count+' requirements.';

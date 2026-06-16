@@ -14,9 +14,11 @@ procurement guideline in `.docx`) and lets you:
    Non-Compliant / Not Applicable*) so submissions stay consistent and easy to
    review, and the tracker header is frozen so it stays visible while scrolling
    a long checklist. A **Review & Approval** sheet tallies the vendor's
-   submission with live formulas — counts per status, awaiting-response, and
-   the *mandatory non-compliant* total (the go/no-go figure) — plus a reviewer
-   sign-off block with a fixed approval-decision dropdown.
+   submission with live formulas — counts per status, awaiting-response, a
+   live *compliance rate* of the applicable requirements, and the *mandatory
+   non-compliant* total (the go/no-go figure, conditionally formatted red when
+   above zero and green once it clears) — plus a reviewer sign-off block with a
+   fixed approval-decision dropdown.
 
    The checklist is **granular and derived from the guideline in detail**: the
    model decides which clauses apply to your purchase, then each selected

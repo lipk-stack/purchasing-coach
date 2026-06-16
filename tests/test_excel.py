@@ -122,3 +122,29 @@ def test_review_sheet_without_template(tmp_path):
     out = write_checklist(INFO, ROWS, tmp_path / "review_blank.xlsx", None)
     wb = load_workbook(out)
     assert REVIEW_SHEET in wb.sheetnames
+
+
+def test_review_sheet_compliance_rate_and_blocker_formatting(samples, tmp_path):
+    out = write_checklist(INFO, ROWS, tmp_path / "rate.xlsx", samples["template"])
+    wb = load_workbook(out)
+    ws = wb[REVIEW_SHEET]
+
+    rows = {ws.cell(r, 1).value: r for r in range(1, ws.max_row + 1)
+            if ws.cell(r, 1).value}
+
+    # A live compliance-rate row, shown as a percentage, that divides Compliant
+    # by the applicable (non-N/A) rows and is divide-by-zero safe.
+    rate_row = rows["Compliance rate (of applicable)"]
+    rate_cell = ws.cell(rate_row, 2)
+    assert str(rate_cell.value).startswith("=IFERROR(COUNTIF(")
+    assert '"Not Applicable"' in rate_cell.value
+    assert rate_cell.number_format == "0.0%"
+
+    # The mandatory non-compliant cell is flagged by conditional formatting:
+    # red when > 0 (a review blocker), green at 0.
+    blocker_row = rows["Mandatory non-compliant (review blocker)"]
+    target = f"B{blocker_row}"
+    rules = [r for rng, rules in ws.conditional_formatting._cf_rules.items()
+             for r in rules if target in str(rng.sqref)]
+    operators = {r.operator for r in rules}
+    assert "greaterThan" in operators and "equal" in operators

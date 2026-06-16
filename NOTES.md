@@ -2,6 +2,57 @@
 
 Reference this file at the start of each routine run.
 
+## Iteration 15 — 2026-06-16
+
+Polished the Review & Approval sheet (follow-up 11) so the reviewer's go/no-go
+read is immediate, and reconciled the routine state with the user's own overhaul
+commits.
+
+- **`coach/excel.py` — `_add_review_sheet` enhancements:**
+  - **Live compliance-rate row** — `Compliance rate (of applicable)` =
+    `IFERROR(COUNTIF(status,"Compliant")/(total-COUNTIF(status,"Not Applicable")),0)`,
+    formatted `0.0%`. Excludes Not Applicable so an N/A-heavy bid isn't
+    penalised, and is divide-by-zero safe before the vendor fills anything in.
+  - **Conditional formatting on the *Mandatory non-compliant (review blocker)*
+    cell** — red (`FFC7CE`/bold `9C0006`) when `>0`, green (`C6EFCE`/`006100`)
+    at `0`, so the go/no-go figure is unmissable and updates live with its
+    COUNTIFS as the vendor populates the tracker.
+- **Web finish note (`coach/webui.py`)** now reports the mandatory count
+  (deterministic, known at finish) — `N requirements (M mandatory)` — and
+  mentions the Review & Approval sheet tallies compliance rate + mandatory
+  non-compliant rows for sign-off. `tender_finish` returns a new `mandatory`
+  field. CLI note (`coach/tender.py`) mentions the compliance rate + red flag.
+- **Verified end-to-end on the genuine `TENDER_TEMPLATE.xlsx`** (59-row run):
+  three sheets, rate formula points at `F3:F61` over 59 rows, conditional
+  formatting lands on the blocker cell, `TenderRequirements` table still
+  extends (`A2:G61`), workbook reloads cleanly in openpyxl — table + tracker
+  dropdown + freeze + review dropdown + new conditional formatting all coexist,
+  no corruption. **.pyz rebuilt (323 KB)** and confirmed to bundle the new
+  logic. README updated.
+- Tests: **115 passing** (+1: `test_review_sheet_compliance_rate_and_blocker_formatting`
+  asserts the rate formula/percent format and the red/green CF rules on the
+  real template).
+- **Drive checked:** guideline (`XXEON_IT_Procurement_Guideline.docx`) and
+  template (`TENDER_TEMPLATE.xlsx`) both still `modifiedTime 2026-06-10T13:05:11Z`
+  (verified this run) — no sample refresh needed.
+- **Reconciliation note:** the two most recent commits (`e53f005` "Major
+  overhaul", `22fc212` "Add embedded SLM backend") are the **user's own** work
+  (author lipk-stack, 2026-06-16) and pre-date this NOTES entry — they
+  restructured `coach/backends.py` into the `coach/backends/` package
+  (embedded/claude_api/openai_compat/bm25/keyword/template). Earlier NOTES that
+  reference `coach/backends.py` as a single file are stale w.r.t. that layout;
+  the code is what's authoritative. All 115 tests (incl. the user's 19 embedded
+  tests) pass on top of this iteration's changes.
+- **main sync correction (follow-up 8):** despite earlier entries claiming
+  "main synced", **origin/main and local main were both still at the initial
+  commit** (`95b5f6b`, 17 behind the dev branch) at the start of this run — the
+  fast-forward had never actually reached origin. Fixed this run: fast-forwarded
+  main to the dev branch and pushed origin/main. Confirm this holds next run.
+- **Live LLM still unavailable** in this sandbox (no API key; local
+  LM Studio/Ollama ports not reachable) — this layer is deterministic and
+  verified on the real template, so it's valuable regardless of backend;
+  follow-up 1's live quality review stays open.
+
 ## Iteration 14 — 2026-06-15
 
 Closed the review/approval reporting gap: the workbook the vendor populates and
@@ -585,12 +636,13 @@ Compliance Tracker) from the template, docx/md/txt loaders, offline tests.
    the web sandbox (Playwright/Puppeteer download hosts are blocked) and we
    don't want node_modules in the repo. If we later want this in CI, either
    vendor a tiny jsdom-free DOM stub or run it where a browser is available.
-11. **Review & Approval sheet polish (iter 14).** Possible nice-to-haves for a
-    future run: conditional formatting that turns the *Mandatory non-compliant*
-    cell red when > 0; a computed compliance-rate % row; and reflecting the
-    review-sheet summary in the web finish note (today it only links the file).
-    All deterministic — no live LLM needed. Worth confirming the formulas render
-    in real Excel/LibreOffice (only openpyxl reload is exercised in-sandbox).
+11. **Review & Approval sheet polish — DONE (iter 15).** Conditional formatting
+    turns the *Mandatory non-compliant* cell red when > 0 (green at 0); a live
+    compliance-rate % row was added; and the web finish note now reflects the
+    mandatory count + the review-sheet summary. Remaining check: confirm the
+    formulas + conditional formatting render in **real Excel/LibreOffice** (only
+    openpyxl reload is exercised in-sandbox). Other nice-to-have: a data-bar or
+    icon-set on the compliance-rate cell.
 10. **Live UI test against the user's LM Studio.** The web sandbox cannot
     reach the user's machine localhost (LM Studio at :1234 is isolated —
     verified 2026-06-13), so stress testing used an in-container streaming

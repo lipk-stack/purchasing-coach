@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from openpyxl import Workbook, load_workbook
+from openpyxl.formatting.rule import CellIsRule
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
@@ -183,6 +184,16 @@ def _add_review_sheet(wb, header_row: int, last_row: int,
              f'=COUNTIFS({mrange},"M",{srange},"Non-Compliant")'),
         ]
 
+    # Live compliance rate: Compliant rows over the applicable ones (excludes
+    # Not Applicable so an N/A-heavy submission isn't penalised). Guarded
+    # against divide-by-zero while the vendor hasn't filled anything in.
+    rate_label = "Compliance rate (of applicable)"
+    summary.append(
+        (rate_label,
+         f'=IFERROR(COUNTIF({srange},"Compliant")'
+         f'/({total}-COUNTIF({srange},"Not Applicable")),0)'))
+    blocker_label = "Mandatory non-compliant (review blocker)"
+
     # Build a fresh sheet so re-runs stay idempotent.
     if REVIEW_SHEET in wb.sheetnames:
         del wb[REVIEW_SHEET]
@@ -198,10 +209,29 @@ def _add_review_sheet(wb, header_row: int, last_row: int,
     ws["A3"].font = label_font
     ws["B3"] = "(updates live as the vendor fills in Vendor Status)"
     row = 4
+    blocker_row = None
     for label, value in summary:
         ws.cell(row=row, column=1, value=label).font = label_font
-        ws.cell(row=row, column=2, value=value)
+        cell = ws.cell(row=row, column=2, value=value)
+        if label == rate_label:
+            cell.number_format = "0.0%"
+        if label == blocker_label:
+            blocker_row = row
         row += 1
+
+    # Make the go/no-go figure unmissable: red when any mandatory requirement
+    # is non-compliant, green once it clears to zero. Updates live with the
+    # underlying COUNTIFS as the vendor fills the tracker.
+    if blocker_row is not None:
+        target = f"B{blocker_row}"
+        red = PatternFill("solid", fgColor="FFC7CE")
+        green = PatternFill("solid", fgColor="C6EFCE")
+        ws.conditional_formatting.add(
+            target, CellIsRule(operator="greaterThan", formula=["0"],
+                               fill=red, font=Font(color="9C0006", bold=True)))
+        ws.conditional_formatting.add(
+            target, CellIsRule(operator="equal", formula=["0"],
+                               fill=green, font=Font(color="006100")))
 
     row += 1
     ws.cell(row=row, column=1, value="Reviewer Sign-off").font = label_font
