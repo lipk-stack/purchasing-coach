@@ -12,7 +12,11 @@ from coach.backends.embedded import (
     EmbeddedBackend,
     DEFAULT_MODEL_REPO,
     DEFAULT_MODEL_FILE,
+    _MAX_STREAM_CHARS,
     _MODEL_CACHE,
+    _STOP_SEQUENCES,
+    _guard_stream,
+    _looping_tail,
 )
 
 
@@ -202,6 +206,99 @@ def test_stream_chat_yields_deltas(tmp_path, monkeypatch):
     assert call_kwargs["messages"][0]["role"] == "system"
 
 
+def test_stream_chat_sets_anti_loop_sampling(tmp_path, monkeypatch):
+    """Chat generation passes stop sequences + repeat penalty to llama.cpp."""
+    fake = _install_fake_llama(monkeypatch)
+    model = _make_model_file(tmp_path)
+    mock_llm = MagicMock()
+    mock_llm.create_chat_completion.return_value = iter([
+        {"choices": [{"delta": {"content": "hi"}}]},
+    ])
+    fake.Llama.return_value = mock_llm
+    backend = EmbeddedBackend(model_path=model)
+    list(backend.stream_chat("sys", [{"role": "user", "content": "q"}]))
+    kw = mock_llm.create_chat_completion.call_args[1]
+    assert kw["stop"] == _STOP_SEQUENCES
+    assert kw["repeat_penalty"] > 1.1
+    assert 0 < kw["temperature"] <= 1
+    assert kw["max_tokens"] > 0
+
+
+def test_stream_chat_stops_on_runaway_repetition(tmp_path, monkeypatch):
+    """A model stuck repeating a phrase must not stream forever."""
+    fake = _install_fake_llama(monkeypatch)
+    model = _make_model_file(tmp_path)
+
+    def infinite_loop():
+        # Never yields a stop token — emulates a degenerate small model.
+        while True:
+            yield {"choices": [{"delta": {"content": "The vendor must comply. "}}]}
+
+    mock_llm = MagicMock()
+    mock_llm.create_chat_completion.return_value = infinite_loop()
+    fake.Llama.return_value = mock_llm
+
+    backend = EmbeddedBackend(model_path=model)
+    out = "".join(backend.stream_chat("sys", [{"role": "user", "content": "q"}]))
+    # The guard terminates the stream rather than hanging.
+    assert len(out) <= _MAX_STREAM_CHARS + 200
+    assert "The vendor must comply." in out
+
+
+def test_looping_tail_detects_cycles_but_not_prose():
+    assert _looping_tail("ABCDEFG" * 5) is True
+    assert _looping_tail("the cat sat. " * 4) is True
+    # Distinct numbered list items are not a loop.
+    assert _looping_tail("1. alpha 2. beta 3. gamma 4. delta") is False
+    assert _looping_tail("a short normal sentence.") is False
+
+
+def test_guard_stream_caps_total_length():
+    def forever():
+        while True:
+            yield "x" * 200
+    out = "".join(_guard_stream(forever()))
+    assert len(out) <= _MAX_STREAM_CHARS + 200
+
+
+def test_fit_system_trims_oversized_guideline(tmp_path, monkeypatch):
+    """A guideline larger than the window is trimmed, not left to overflow."""
+    fake = _install_fake_llama(monkeypatch)
+    model = _make_model_file(tmp_path)
+    fake.Llama.return_value = MagicMock()
+    backend = EmbeddedBackend(model_path=model, n_ctx=1024)  # small window
+    big = "<guideline>" + ("clause text " * 2000) + "</guideline>"
+    fitted = backend._fit_system(big, reserve_tokens=128)
+    assert len(fitted) < len(big)
+    assert "truncated to fit" in fitted
+    assert fitted.endswith("</guideline>")  # structure preserved
+
+
+def test_cap_tokens_never_exceeds_context(tmp_path, monkeypatch):
+    fake = _install_fake_llama(monkeypatch)
+    model = _make_model_file(tmp_path)
+    fake.Llama.return_value = MagicMock()
+    backend = EmbeddedBackend(model_path=model, n_ctx=2048)
+    msgs = [{"role": "system", "content": "x" * 4000}]  # ~1000 tokens
+    capped = backend._cap_tokens(msgs, requested=16000)
+    assert capped <= 2048 and capped >= 128
+
+
+def test_complete_json_caps_huge_max_tokens(tmp_path, monkeypatch):
+    """The checklist call asks for 16000 tokens; it must be clamped to n_ctx."""
+    fake = _install_fake_llama(monkeypatch)
+    model = _make_model_file(tmp_path)
+    mock_llm = MagicMock()
+    mock_llm.create_chat_completion.return_value = {
+        "choices": [{"message": {"content": '{"ok": true}'}}]
+    }
+    fake.Llama.return_value = mock_llm
+    backend = EmbeddedBackend(model_path=model, n_ctx=4096)
+    backend.complete_json("sys", "p", {}, "test", max_tokens=16000)
+    kw = mock_llm.create_chat_completion.call_args[1]
+    assert kw["max_tokens"] <= 4096
+
+
 def test_stream_chat_handles_empty_delta(tmp_path, monkeypatch):
     fake = _install_fake_llama(monkeypatch)
     model = _make_model_file(tmp_path)
@@ -343,6 +440,38 @@ def test_factory_unknown_backend_raises(monkeypatch):
     from coach.backends import BackendError
     with pytest.raises(BackendError, match="unknown backend"):
         get_backend("nonexistent")
+
+
+def test_auto_detect_defaults_to_embedded_when_available(tmp_path, monkeypatch):
+    """With no server/API key but llama-cpp installed, auto picks embedded."""
+    fake = _install_fake_llama(monkeypatch)
+    fake.Llama.return_value = MagicMock()
+    # No LM Studio / Ollama reachable.
+    monkeypatch.setattr(
+        "coach.backends.OpenAICompatBackend",
+        MagicMock(side_effect=BackendError("no server")),
+    )
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+    # A model is present in the cache so no download is attempted.
+    monkeypatch.setattr("coach.backends.embedded._MODEL_CACHE", tmp_path)
+    (tmp_path / "model.gguf").write_bytes(b"GGUF")
+
+    backend = get_backend("auto", log=lambda *a: None)
+    assert backend.name == "embedded"
+
+
+def test_auto_detect_falls_back_to_keyword_without_llama(monkeypatch):
+    """When llama-cpp is missing, auto falls back to the keyword backend."""
+    monkeypatch.setattr(
+        "coach.backends.OpenAICompatBackend",
+        MagicMock(side_effect=BackendError("no server")),
+    )
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+    with patch.dict(sys.modules, {"llama_cpp": None}):
+        backend = get_backend("auto", log=lambda *a: None)
+    assert backend.name == "keyword"
 
 
 # ---------------------------------------------------------------------------

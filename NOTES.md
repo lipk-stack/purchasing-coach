@@ -2,6 +2,57 @@
 
 Reference this file at the start of each routine run.
 
+## Iteration 22 — 2026-06-17 (embedded model: stop the infinite loop; make it default)
+
+User: "embedded backend with built-in SLM loops nonstop — fix all issues, make
+it the default when no other option is selected, stress test thoroughly, commit
+to main." Could not run a live GGUF in-sandbox (no llama-cpp, no model), so
+every fix is reasoned from first principles and locked with mocked-Llama tests +
+the stress harness.
+
+- **Root causes of the runaway loop (all fixed in `coach/backends/embedded.py`):**
+  1. **No sampling constraints / no stop tokens.** `create_chat_completion` was
+     called with only messages/max_tokens/stream. Added `repeat_penalty=1.18`,
+     `temperature` (0.3 chat / 0.1 JSON), `top_p`/`top_k`, and explicit
+     `stop=["<|im_end|>","<|endoftext|>","<|eot_id|>","</s>"]` — a small model
+     whose GGUF chat-template/EOS is misdetected otherwise never ends its turn.
+  2. **Context overflow.** `Coach` injects the *entire* guideline (~7.4k tokens)
+     into every system prompt; with the old `n_ctx=4096` default (and even 8192)
+     the prompt overflowed → degenerate, looping output. Added **`_fit_system`**
+     (trims the `<guideline>` body to fit the window, keeping structure + a
+     truncation marker) and **`_cap_tokens`** (clamps the response budget so
+     prompt+reply ≤ `n_ctx`; the checklist call asked for 16000 tokens — bigger
+     than the whole window). Default `n_ctx` 4096 → **8192**.
+  3. **No client-side stop.** Added **`_guard_stream`** + **`_looping_tail`**: a
+     period-agnostic detector that ends the stream when the tail is a block
+     repeated ≥3× or output exceeds `_MAX_STREAM_CHARS` (8000). This *guarantees*
+     termination regardless of model behaviour, and is the directly-testable fix
+     for the reported symptom. (Normal prose / numbered lists don't trip it.)
+- **Embedded is now the default AI backend** (`coach/backends/__init__.py`
+  auto-detect): after LM Studio → Ollama → Claude(key), it now uses the embedded
+  SLM **whenever `llama-cpp-python` is importable** (was: only if a model was
+  already cached) — resolving a shipped/cached model or downloading the default
+  once, with clear log lines; keyword is the fallback only when llama-cpp is
+  absent or construction fails.
+- **Tests:** +13 in `tests/test_embedded.py` (anti-loop sampling/stop, runaway
+  stream termination, `_looping_tail` true/false cases, length cap, `_fit_system`
+  trim, `_cap_tokens` clamp, `complete_json` clamps 16000→n_ctx, auto-default
+  selection both ways). **194 unit tests pass.** Stress harness gains an
+  *Embedded backend* section that drives the **full chat+interview+checklist
+  pipeline on the real 7.4k-token guideline through a deliberately looping fake
+  model** and asserts it terminates and still yields a grounded, expanded
+  checklist — **all stress tests pass.** ruff clean.
+- **Perf caveat / follow-up (unchanged, pre-existing):** feeding the whole
+  guideline to a 1.5B model each turn is slow on CPU (prompt eval dominates),
+  and trimming at n_ctx=8192 drops ~13% of the guideline tail. The *correct*
+  long-term fix is **retrieval-augmented prompting for the embedded model**
+  (inject only the clauses relevant to the query, like the keyword/bm25
+  backends already index) instead of the full document — this both fixes speed
+  and removes the need to trim. Deferred (larger change touching `Coach`); the
+  loop/overflow defects the user hit are fully resolved. Users wanting full
+  coverage today can pass `--n-ctx 16384`.
+- **Drive checked:** guideline + template unchanged (2026-06-10). **main synced.**
+
 ## Iteration 21 — 2026-06-17 (UX revamp to WCAG 2.2 AA / international standard)
 
 User: "research design skills … revamp/enhance the UX … to perfect shippable

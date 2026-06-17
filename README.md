@@ -70,10 +70,15 @@ model **bundled inside the zipapp** (`python scripts/build_portable.py
 --with-model` produces a standalone ~1.2 GB `purchasing-coach-embedded.pyz`), or
 a **`models/` folder beside the `.pyz`** (drop any `.gguf` there, or point
 `EMBEDDED_MODEL_DIR` at it) — only if none of those are found does it fall back
-to a one-time download. Auto-detect also picks the embedded backend
-automatically when a model ships with the app. Even with **no model at all**,
-the built-in `keyword`, `bm25` and `template` backends generate a guideline-
-grounded interview and checklist with zero dependencies.
+to a one-time download. **The embedded model is the default AI backend** —
+auto-detect uses it whenever `llama-cpp-python` is installed and no LM Studio /
+Ollama server or `ANTHROPIC_API_KEY` is found. Because the whole guideline is
+fed to the model, the embedded backend constrains generation (anti-repetition
+sampling and stop sequences, plus a loop guard) and trims the guideline to fit
+the context window (`--n-ctx`, default 8192) so small models stay responsive
+and never loop. Even with **no model at all**, the built-in `keyword`, `bm25`
+and `template` backends generate a guideline-grounded interview and checklist
+with zero dependencies.
 
 The source documents (`XXEON_IT_Procurement_Guideline.docx` and
 `TENDER_TEMPLATE.xlsx`) live in the Google Drive **"Purchasing Guideline"**
@@ -171,7 +176,8 @@ ISO/IEC 40500). It ships with:
   down to mobile widths.
 
 The backend is auto-detected (LM Studio → Ollama → Claude API if an
-`ANTHROPIC_API_KEY` is set). Pin it explicitly with `--backend lmstudio`,
+`ANTHROPIC_API_KEY` is set → embedded SLM if `llama-cpp-python` is installed →
+keyword). Pin it explicitly with `--backend lmstudio`,
 `--backend ollama`, `--backend claude`, or point at any OpenAI-compatible
 server with `--base-url http://host:port/v1`. Pick a model with
 `--llm-model` (otherwise the first model the server reports is used).

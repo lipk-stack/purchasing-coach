@@ -8,6 +8,27 @@ to follow [Semantic Versioning](https://semver.org/).
 
 Production-quality hardening pass.
 
+### Fixed
+- **Embedded model no longer loops forever.** Small GGUF models (the bundled
+  Qwen2.5-1.5B) could stream the same phrase endlessly. Root causes addressed:
+  (1) generation now uses anti-repetition sampling (`repeat_penalty` 1.18,
+  bounded `temperature`/`top_p`/`top_k`) and explicit ChatML/EOS **stop
+  sequences** so the model ends its turn even if the GGUF's template is
+  misdetected; (2) a client-side **loop guard** (`_guard_stream`) terminates the
+  stream on detected repetition or after a hard character cap, guaranteeing it
+  never hangs; (3) the full guideline (~7.4k tokens) was injected into every
+  prompt and overflowed the context window — the system prompt is now **trimmed
+  to fit** `n_ctx` (`_fit_system`) and the response budget is **clamped** so
+  prompt + reply always fit (`_cap_tokens`), fixing the overflow that produced
+  degenerate output. The embedded default context window is now 8192.
+
+### Changed
+- **The embedded backend is now the default AI backend.** When no LM Studio /
+  Ollama server is running and no `ANTHROPIC_API_KEY` is set, auto-detect uses
+  the embedded SLM whenever `llama-cpp-python` is installed (resolving a model
+  shipped with the app or cached locally, downloading the default only on first
+  use), falling back to the keyword backend only when llama-cpp is unavailable.
+
 ### Added
 - **WCAG 2.2 AA accessibility revamp of the web UI** (adopted internationally
   as ISO/IEC 40500). Full keyboard operation: the sidebar navigation and saved

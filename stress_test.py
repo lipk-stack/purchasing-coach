@@ -283,6 +283,119 @@ def test_template_scenarios():
     assert KEYWORD_INDEX.get("saas") == "software"
 check("Template scenarios data", test_template_scenarios)
 
+
+# ---- Embedded SLM backend (looping-model resilience) ----
+print("\n--- Embedded backend (anti-loop / context budgeting) ---")
+
+import sys as _sys, types as _types, json as _json
+from unittest.mock import MagicMock
+
+
+def _install_loopy_llama(stream_text="The vendor must comply. ",
+                         json_text='{"questions": ["Q1?", "Q2?"]}'):
+    """Install a fake llama_cpp whose Llama loops forever when streaming."""
+    mod = _types.ModuleType("llama_cpp")
+
+    class LoopyLlama:
+        def __init__(self, **kw):
+            self.kw = kw
+
+        def create_chat_completion(self, **kw):
+            if kw.get("stream"):
+                def gen():
+                    while True:  # degenerate model: never emits a stop token
+                        yield {"choices": [{"delta": {"content": stream_text}}]}
+                return gen()
+            return {"choices": [{"message": {"content": json_text}}]}
+
+    mod.Llama = LoopyLlama
+    _sys.modules["llama_cpp"] = mod
+    return mod
+
+
+def test_embedded_chat_does_not_loop_forever():
+    from coach.backends.embedded import EmbeddedBackend, _MAX_STREAM_CHARS
+    _install_loopy_llama()
+    model = "/tmp/_pc_stress_model.gguf"
+    with open(model, "wb") as f:
+        f.write(b"GGUF" + b"\x00" * 16)
+    backend = EmbeddedBackend(model_path=model, n_ctx=8192)
+    out = "".join(backend.stream_chat("system", [{"role": "user", "content": "hi"}]))
+    assert len(out) <= _MAX_STREAM_CHARS + 400, f"runaway: {len(out)} chars"
+    assert "The vendor must comply." in out
+    _sys.modules.pop("llama_cpp", None)
+check("Embedded chat terminates on looping model", test_embedded_chat_does_not_loop_forever)
+
+
+def test_embedded_full_pipeline_with_huge_guideline():
+    """Whole tender flow on the real guideline survives a looping model."""
+    from coach.documents import load_guideline
+    from coach.llm import Coach
+    from coach.backends.embedded import EmbeddedBackend
+    # JSON the fake model returns for interview + checklist calls.
+    _install_loopy_llama(
+        json_text=_json.dumps({
+            "questions": ["What is the deadline?"],
+            "tender_info": {"purchase_item": "20 laptops"},
+            "requirements": [{"ref": "8", "section": "Hardware",
+                              "requirement": "applies", "mandatory": "M"}],
+        }))
+    model = "/tmp/_pc_stress_model.gguf"
+    backend = EmbeddedBackend(model_path=model, n_ctx=4096)
+    guideline = load_guideline("samples/XXEON_IT_Procurement_Guideline.docx")
+    coach = Coach(guideline, backend)
+    # Chat over the (large) guideline must terminate.
+    reply = "".join(coach.answer([{"role": "user", "content": "warranty?"}]))
+    assert reply, "empty reply"
+    # Interview plan + checklist build must complete and be grounded.
+    plan = coach.plan_interview("20 Dell laptops")
+    assert len(plan.questions) >= 1
+    checklist = coach.build_checklist(
+        "20 Dell laptops", [(q.question, "yes") for q in plan.questions])
+    assert len(checklist.requirements) > 5, "checklist not expanded"
+    assert all(r.ref for r in checklist.requirements)
+    _sys.modules.pop("llama_cpp", None)
+check("Embedded full pipeline on real guideline", test_embedded_full_pipeline_with_huge_guideline)
+
+
+def test_embedded_context_budget_fits_window():
+    from coach.backends.embedded import EmbeddedBackend, _estimate_tokens
+    _install_loopy_llama()
+    model = "/tmp/_pc_stress_model.gguf"
+    backend = EmbeddedBackend(model_path=model, n_ctx=2048)
+    big_system = "<guideline>" + ("x " * 8000) + "</guideline>"
+    fitted = backend._fit_system(big_system, reserve_tokens=256)
+    msgs = [{"role": "system", "content": fitted},
+            {"role": "user", "content": "hello"}]
+    capped = backend._cap_tokens(msgs, requested=16000)
+    used = sum(_estimate_tokens(m["content"]) for m in msgs)
+    assert used + capped <= 2048 + 32, "prompt+response exceeds context"
+    _sys.modules.pop("llama_cpp", None)
+check("Embedded prompt+response fit context window", test_embedded_context_budget_fits_window)
+
+
+def test_embedded_is_auto_default_when_available():
+    import coach.backends as B
+    from coach.backends.embedded import EmbeddedBackend
+    _install_loopy_llama()
+    # Force a cached model and no servers / API key.
+    import os
+    os.environ.pop("ANTHROPIC_API_KEY", None)
+    os.environ.pop("ANTHROPIC_AUTH_TOKEN", None)
+    orig = B.OpenAICompatBackend
+    B.OpenAICompatBackend = MagicMock(side_effect=B.BackendError("no server"))
+    orig_cached = EmbeddedBackend.has_cached_model
+    EmbeddedBackend.has_cached_model = staticmethod(lambda: True)
+    try:
+        backend = B.get_backend("auto", model_path="/tmp/_pc_stress_model.gguf",
+                                log=lambda *a: None)
+        assert backend.name == "embedded", f"got {backend.name}"
+    finally:
+        B.OpenAICompatBackend = orig
+        EmbeddedBackend.has_cached_model = orig_cached
+        _sys.modules.pop("llama_cpp", None)
+check("Embedded is the auto default backend", test_embedded_is_auto_default_when_available)
+
 # ---- Summary ----
 print("\n" + "=" * 60)
 if failures:

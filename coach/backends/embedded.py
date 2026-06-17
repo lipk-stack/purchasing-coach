@@ -38,6 +38,76 @@ _MODEL_CACHE = Path.home() / ".purchasing-coach" / "models"
 # module (coach/models.py).
 _BUNDLED_PACKAGE = "coach.gguf_models"
 
+# ---------------------------------------------------------------------------
+# Generation tuning — small models (1.5B) fall into runaway repetition loops
+# unless sampling is constrained and end-of-turn markers are enforced. These
+# defaults curb that at the source; the client-side loop guard below is the
+# safety net for when they don't.
+# ---------------------------------------------------------------------------
+_TEMPERATURE = 0.3        # chat: a little randomness breaks repetition cycles
+_JSON_TEMPERATURE = 0.1   # structured output: near-deterministic
+_TOP_P = 0.9
+_TOP_K = 40
+_REPEAT_PENALTY = 1.18    # > the llama.cpp default (1.1); discourages loops
+# ChatML / common end-of-turn markers, used as a stop-sequence safety net in
+# case the GGUF's own EOS metadata is missing or its chat template is
+# misdetected — a classic cause of never-ending, looping generation.
+_STOP_SEQUENCES = ["<|im_end|>", "<|endoftext|>", "<|eot_id|>", "</s>"]
+
+# Client-side anti-loop guard for streamed chat. Even with the sampling above a
+# small model can get stuck repeating a phrase forever, so we cap total output
+# and stop when the tail is a short block repeated several times in a row.
+_MAX_STREAM_CHARS = 8000
+_LOOP_MIN_PERIOD = 6      # ignore trivially short cycles ("...", ", , ,")
+_LOOP_MAX_PERIOD = 160
+_LOOP_REPEATS = 3         # this many identical consecutive blocks => a loop
+
+
+def _looping_tail(text: str) -> bool:
+    """True if ``text`` ends with a block repeated ``_LOOP_REPEATS`` times.
+
+    Period-agnostic: detects ``XYZXYZXYZ`` for any block length in
+    ``[_LOOP_MIN_PERIOD, _LOOP_MAX_PERIOD]``. Normal prose and numbered lists
+    (whose items differ) don't match; a model stuck echoing the same sentence
+    does.
+    """
+    n = len(text)
+    for period in range(_LOOP_MIN_PERIOD, _LOOP_MAX_PERIOD + 1):
+        span = period * _LOOP_REPEATS
+        if n < span:
+            break
+        segment = text[-span:]
+        if segment == segment[:period] * _LOOP_REPEATS:
+            return True
+    return False
+
+
+def _guard_stream(chunks: Iterator[str]) -> Iterator[str]:
+    """Pass streamed text through, stopping on runaway repetition or length.
+
+    Guarantees the stream terminates even if the model never emits a stop
+    token: it ends after ``_MAX_STREAM_CHARS`` of output or as soon as the
+    accumulated tail looks like a repetition loop.
+    """
+    buf: list[str] = []
+    total = 0
+    for chunk in chunks:
+        if not chunk:
+            continue
+        buf.append(chunk)
+        total += len(chunk)
+        yield chunk
+        if total >= _MAX_STREAM_CHARS:
+            return
+        # Only re-scan the tail; the loop detector never needs more than this.
+        if _looping_tail("".join(buf)[-(_LOOP_MAX_PERIOD * _LOOP_REPEATS):]):
+            return
+
+
+def _estimate_tokens(text: str) -> int:
+    """Rough token count for budgeting (~4 chars/token, +1 to avoid zero)."""
+    return len(text) // 4 + 1
+
 
 class EmbeddedBackend(BackendProtocol):
     """Runs a small GGUF model locally via llama-cpp-python.
@@ -51,7 +121,9 @@ class EmbeddedBackend(BackendProtocol):
     model_name : str, optional
         Override the displayed model name (defaults to the file stem).
     n_ctx : int
-        Context window size in tokens (default 4096).
+        Context window size in tokens (default 8192). The guideline is injected
+        into the prompt, so a window smaller than the guideline plus room for a
+        reply will cause the system prompt to be trimmed to fit.
     n_threads : int, optional
         CPU threads for inference (defaults to llama.cpp's auto-selection).
     verbose : bool
@@ -65,7 +137,7 @@ class EmbeddedBackend(BackendProtocol):
         self,
         model_path: str | Path | None = None,
         model_name: str | None = None,
-        n_ctx: int = 4096,
+        n_ctx: int = 8192,
         n_threads: int | None = None,
         verbose: bool = False,
     ):
@@ -252,29 +324,75 @@ class EmbeddedBackend(BackendProtocol):
         return Path(path)
 
     # ------------------------------------------------------------------
+    # Context budgeting — the guideline is large and is injected into every
+    # prompt; without this the prompt overflows ``n_ctx`` and the model emits
+    # degenerate, looping output.
+    # ------------------------------------------------------------------
+    def _fit_system(self, system: str, reserve_tokens: int) -> str:
+        """Trim the system prompt's guideline so the prompt fits the window.
+
+        Keeps room for ``reserve_tokens`` of response plus a little history.
+        When the system prompt is too large its ``<guideline>`` body is
+        truncated (with a marker) rather than letting the context overflow.
+        """
+        budget = self._n_ctx - reserve_tokens - 256  # 256 ≈ history/overhead
+        if budget < 256 or _estimate_tokens(system) <= budget:
+            return system
+        max_chars = budget * 4
+        open_tag, close_tag = "<guideline>", "</guideline>"
+        start = system.find(open_tag)
+        end = system.find(close_tag)
+        marker = "\n…[guideline truncated to fit the model context window]…\n"
+        if start != -1 and end != -1 and end > start:
+            head = system[:start + len(open_tag)]
+            body = system[start + len(open_tag):end]
+            keep = max_chars - len(head) - len(close_tag) - len(marker)
+            if keep > 0:
+                return head + body[:keep] + marker + system[end:]
+        # No guideline block (or no room) — hard truncate as a last resort.
+        return system[:max(256, max_chars)] + marker
+
+    def _cap_tokens(self, messages: list[dict], requested: int) -> int:
+        """Clamp the response token budget so prompt + reply fit ``n_ctx``."""
+        used = sum(_estimate_tokens(m.get("content", "")) for m in messages)
+        available = self._n_ctx - used - 32
+        return max(128, min(requested, available))
+
+    # ------------------------------------------------------------------
     # BackendProtocol implementation
     # ------------------------------------------------------------------
     def stream_chat(
         self,
         system: str,
         messages: list[dict],
-        max_tokens: int = 4096,
+        max_tokens: int = 1536,
     ) -> Iterator[str]:
+        system = self._fit_system(system, max_tokens)
         chat_messages = [
             {"role": "system", "content": system},
             *messages,
         ]
         response = self._llm.create_chat_completion(
             messages=chat_messages,
-            max_tokens=max_tokens,
+            max_tokens=self._cap_tokens(chat_messages, max_tokens),
             stream=True,
+            temperature=_TEMPERATURE,
+            top_p=_TOP_P,
+            top_k=_TOP_K,
+            repeat_penalty=_REPEAT_PENALTY,
+            stop=_STOP_SEQUENCES,
         )
-        for chunk in response:
-            choices = chunk.get("choices") or []
-            if choices:
-                delta = (choices[0].get("delta") or {}).get("content")
-                if delta:
-                    yield delta
+
+        def _deltas() -> Iterator[str]:
+            for chunk in response:
+                choices = chunk.get("choices") or []
+                if choices:
+                    delta = (choices[0].get("delta") or {}).get("content")
+                    if delta:
+                        yield delta
+
+        # The loop guard guarantees termination even if the model never stops.
+        yield from _guard_stream(_deltas())
 
     def complete_json(
         self,
@@ -282,39 +400,42 @@ class EmbeddedBackend(BackendProtocol):
         prompt: str,
         schema: dict,
         schema_name: str,
-        max_tokens: int = 8192,
+        max_tokens: int = 4096,
     ) -> dict:
         full_prompt = (
             f"{prompt}\n\nRespond with a single JSON object matching this "
             f"JSON schema, with no extra commentary:\n"
             f"{json.dumps(schema, indent=2)}"
         )
+        system = self._fit_system(system, max_tokens)
         chat_messages = [
             {"role": "system", "content": system},
             {"role": "user", "content": full_prompt},
         ]
+        capped = self._cap_tokens(chat_messages, max_tokens)
+        common = dict(
+            messages=chat_messages,
+            max_tokens=capped,
+            stream=False,
+            temperature=_JSON_TEMPERATURE,
+            top_p=_TOP_P,
+            top_k=_TOP_K,
+            repeat_penalty=_REPEAT_PENALTY,
+            stop=_STOP_SEQUENCES,
+        )
 
         # Try with guided JSON schema first (llama-cpp-python supports
         # this via response_format with a json_schema).
         try:
             response = self._llm.create_chat_completion(
-                messages=chat_messages,
-                max_tokens=max_tokens,
-                stream=False,
-                response_format={
-                    "type": "json_object",
-                    "schema": schema,
-                },
+                response_format={"type": "json_object", "schema": schema},
+                **common,
             )
             content = response["choices"][0]["message"]["content"]
             return extract_json(content)
         except (TypeError, ValueError, KeyError):
             # Fallback: retry without response_format and parse manually.
-            response = self._llm.create_chat_completion(
-                messages=chat_messages,
-                max_tokens=max_tokens,
-                stream=False,
-            )
+            response = self._llm.create_chat_completion(**common)
             content = response["choices"][0]["message"]["content"]
             return extract_json(content)
 
@@ -349,9 +470,11 @@ class EmbeddedBackend(BackendProtocol):
 
             warnings.warn(
                 f"Guideline is ~{guideline_tokens} tokens but the model "
-                f"context window is {self._n_ctx}. Long conversations may "
-                "be truncated. Consider using a model with a larger "
-                "context window or a retrieval-based backend.",
+                f"context window is {self._n_ctx}; the guideline will be "
+                "trimmed to fit each prompt. For full coverage, raise the "
+                "window with --n-ctx (e.g. 16384) or use a retrieval-based "
+                "backend (keyword/bm25/template) which indexes the whole "
+                "guideline.",
                 stacklevel=2,
             )
 

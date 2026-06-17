@@ -172,25 +172,33 @@ def get_backend(
         log("No local LLM server found — using the Claude API.")
         return AnthropicBackend(model or "claude-opus-4-8")
 
-    # Try embedded SLM if llama-cpp-python is installed and a model exists
+    # Default AI backend: the embedded SLM, used whenever llama-cpp-python is
+    # installed. It runs fully offline with no server or API key — resolving a
+    # model shipped with the app or cached locally, and downloading the default
+    # one on first use only if none is present. This is the intended
+    # out-of-the-box experience for the portable bundle.
     try:
         from .embedded import EmbeddedBackend
 
-        if EmbeddedBackend.is_available() and EmbeddedBackend.has_cached_model():
+        if EmbeddedBackend.is_available():
+            if EmbeddedBackend.has_cached_model():
+                log("No local LLM server found — using the embedded model "
+                    "(local GGUF, no server or API key needed).")
+            else:
+                log("No local LLM server found — using the embedded backend; "
+                    "downloading the default model on first use (this happens "
+                    "once and is then cached).")
             backend = EmbeddedBackend(model_path=model_path, n_ctx=n_ctx)
-            log(
-                f"Using embedded model '{backend.model}' (local GGUF). "
-                "No external server needed."
-            )
+            log(f"Using embedded model '{backend.model}'.")
             return backend
-    except (BackendError, ImportError):
-        pass
+    except (BackendError, ImportError) as exc:
+        log(f"Embedded backend unavailable ({exc}); falling back to keyword.")
 
-    # Final fallback: keyword backend (no LLM needed)
+    # Final fallback: keyword backend (no LLM, no dependencies needed).
     log(
-        "No LLM server detected — using the built-in keyword backend. "
-        "For AI-powered responses, start LM Studio or Ollama, set "
-        "ANTHROPIC_API_KEY, or install llama-cpp-python with a GGUF model."
+        "Using the built-in keyword backend. For AI-powered responses, start "
+        "LM Studio or Ollama, set ANTHROPIC_API_KEY, or install "
+        "llama-cpp-python (the embedded model is then used automatically)."
     )
     from .keyword import KeywordBackend
 
