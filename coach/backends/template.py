@@ -512,11 +512,11 @@ class TemplateBackend(BackendProtocol):
                 parts.append(f"- **{ref}** — {title}")
 
         # --- Security ---
-        parts.append(f"\n### Security Considerations\n")
+        parts.append("\n### Security Considerations\n")
         parts.append(scenario["guidance"]["security"])
 
         # --- Contract ---
-        parts.append(f"\n### Contract Terms\n")
+        parts.append("\n### Contract Terms\n")
         parts.append(scenario["guidance"]["contract"])
 
         # --- Next steps ---

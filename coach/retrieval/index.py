@@ -8,6 +8,7 @@ individual clause documents.  Pure-Python, no external dependencies.
 from __future__ import annotations
 
 import math
+import re
 from typing import Any
 
 from .tokenizer import tokenize
@@ -218,9 +219,7 @@ class InvertedIndex:
 # Module-level helpers
 # ------------------------------------------------------------------
 
-import re as _re
-
-_CLAUSE_NUM_RE = _re.compile(r"\d+(?:\.\d+)*")
+_CLAUSE_NUM_RE = re.compile(r"\d+(?:\.\d+)*")
 
 
 def _clause_sort_key(ref: str) -> tuple[int, tuple[int, ...]]:

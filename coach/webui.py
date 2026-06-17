@@ -11,11 +11,10 @@ fonts, no CDN) so it works on locked-down, offline corporate machines.
 """
 
 import json
-import os
 import threading
 import uuid
 import webbrowser
-from datetime import date, datetime
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -23,8 +22,6 @@ from .excel import write_checklist
 from .llm import Coach
 from .models import (
     AnalyticsSnapshot,
-    ChatMessage,
-    Session,
     TenderChecklist,
     RequirementRow,
 )

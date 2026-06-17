@@ -83,9 +83,11 @@ SCENARIOS: dict[str, dict] = {
         "conditional_sections": {
             "hw_network != Standalone": ["5", "6"],
             "hw_scale == Large (500+ units) OR hw_criticality == Mission-critical": ["7"],
-            "true": ["8"],
             "hw_scale == Large (500+ units)": ["10"],
-            "true": ["12"],
+            # Hardware (8) and post-implementation (12) always apply to a
+            # hardware buy. Kept as one "true" entry — a dict literal silently
+            # drops a repeated key, which previously lost section 8 entirely.
+            "true": ["8", "12"],
         },
         "guidance": {
             "general": (
@@ -171,9 +173,11 @@ SCENARIOS: dict[str, dict] = {
             "sw_integration != Standalone": ["6"],
             "sw_type == Cloud/SaaS OR sw_license == SaaS/Cloud": ["11"],
             "sw_license == Perpetual License OR sw_license == Subscription": ["9"],
-            "true": ["7"],
             "sw_users == Enterprise (200+)": ["10"],
-            "true": ["12"],
+            # Support (7) and post-implementation (12) always apply to a
+            # software buy. Merged into one "true" entry — a repeated dict key
+            # previously dropped section 7.
+            "true": ["7", "12"],
         },
         "guidance": {
             "general": (

@@ -1,0 +1,71 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "purchasing-coach"
+description = "Portable chatbot that turns a purchasing guideline into a compliant tender checklist."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+authors = [{ name = "lipk-stack" }]
+keywords = ["procurement", "tender", "compliance", "chatbot", "llm", "offline"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Office/Business",
+]
+dynamic = ["version"]
+# Pure-Python runtime so the app stays portable (no compiled deps, no install
+# rights needed). Optional backends/formats live in [project.optional-dependencies].
+dependencies = ["openpyxl>=3.1"]
+
+[project.optional-dependencies]
+claude = ["anthropic>=0.50"]
+pdf = ["pypdf>=4.0"]
+embedded = ["llama-cpp-python>=0.2"]
+dev = [
+    "pytest>=8",
+    "ruff>=0.5",
+    "python-docx>=1.1",
+]
+
+[project.scripts]
+purchasing-coach = "coach.cli:main"
+
+[project.urls]
+Repository = "https://github.com/lipk-stack/purchasing-coach"
+
+[tool.setuptools]
+packages = [
+    "coach",
+    "coach.backends",
+    "coach.retrieval",
+    "coach.templates",
+]
+
+[tool.setuptools.dynamic]
+version = { attr = "coach.__version__" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+# stress_test.py is an ad-hoc manual harness (prints, then imports) — not part
+# of the importable package or the CI test run.
+extend-exclude = ["build", "dist", ".design-tools", "stress_test.py"]
+
+[tool.ruff.lint]
+# Pyflakes (F) catches real bugs (unused/undefined names, duplicate keys);
+# the E4/E7/E9/W subset covers import, statement and runtime-syntax issues.
+# Bugbear (B) / pyupgrade (UP) are a planned follow-up tightening.
+select = ["E4", "E7", "E9", "F", "W"]

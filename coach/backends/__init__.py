@@ -18,8 +18,25 @@ from .openai_compat import (
     LMSTUDIO_URL,
     OLLAMA_URL,
     REQUEST_TIMEOUT,
-    PROVIDER_PRESETS as _PROVIDER_PRESETS,
 )
+
+# Public API, including backward-compatible re-exports from openai_compat so
+# existing imports (``from coach.backends import BackendError`` etc.) keep
+# working after the split into a package.
+__all__ = [
+    "BackendProtocol",
+    "BackendError",
+    "OpenAICompatBackend",
+    "extract_json",
+    "LMSTUDIO_URL",
+    "OLLAMA_URL",
+    "REQUEST_TIMEOUT",
+    "detect_backend",
+    "get_backend",
+    "list_backends",
+    "ALL_BACKENDS",
+    "PROVIDER_PRESETS",
+]
 
 
 def detect_backend(kind: str = "auto", base_url: str | None = None,
@@ -87,13 +104,6 @@ def get_backend(
     log : callable
         Logger function for status messages.
     """
-    from .openai_compat import (
-        BackendError,
-        OpenAICompatBackend,
-        LMSTUDIO_URL,
-        OLLAMA_URL,
-    )
-
     # Explicit provider or base_url -> openai-compat backend
     if base_url or provider:
         return OpenAICompatBackend(

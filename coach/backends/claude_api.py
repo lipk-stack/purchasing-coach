@@ -79,6 +79,6 @@ class AnthropicBackend(BackendProtocol):
         try:
             # Lightweight check: try to list models
             self.client.models.list()
-            return {"status": "ok", "detail": f"claude: API reachable"}
+            return {"status": "ok", "detail": "claude: API reachable"}
         except Exception as exc:
             return {"status": "error", "detail": str(exc)}

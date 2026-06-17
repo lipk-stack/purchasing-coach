@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 from . import __version__
-from .backends import BackendError, detect_backend, get_backend, list_backends
+from .backends import BackendError, get_backend, list_backends
 from .backends.openai_compat import PROVIDER_PRESETS
 from .documents import load_guideline
 from .format import StreamPrinter, enable_windows_ansi

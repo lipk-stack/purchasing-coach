@@ -1,6 +1,5 @@
 """Unit tests for the embedded SLM backend (llama-cpp-python mocked)."""
 
-import json
 import sys
 import types
 from pathlib import Path
@@ -83,7 +82,7 @@ def test_missing_explicit_path_raises(tmp_path, monkeypatch):
 
 
 def test_env_var_model_path(tmp_path, monkeypatch):
-    fake = _install_fake_llama(monkeypatch)
+    _install_fake_llama(monkeypatch)
     model = _make_model_file(tmp_path)
     monkeypatch.setenv("EMBEDDED_MODEL_PATH", str(model))
     backend = EmbeddedBackend()
@@ -98,7 +97,7 @@ def test_env_var_missing_path_raises(monkeypatch):
 
 
 def test_cached_model_found(tmp_path, monkeypatch):
-    fake = _install_fake_llama(monkeypatch)
+    _install_fake_llama(monkeypatch)
     # Put a fake GGUF in the cache dir
     monkeypatch.setattr(
         "coach.backends.embedded._MODEL_CACHE", tmp_path

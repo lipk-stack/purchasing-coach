@@ -2,6 +2,53 @@
 
 Reference this file at the start of each routine run.
 
+## Iteration 17 — 2026-06-17 (loop pass 1/10: production-quality foundation)
+
+User started a `/loop` to "enhance everything to production quality, at least 10
+times". This is pass 1: packaging, CI, linting — and a real bug the linter
+surfaced on its first run.
+
+- **Real bug fixed — duplicate `"true"` dict key dropped a whole section**
+  (`coach/templates/scenarios.py`). The `hardware` scenario's
+  `conditional_sections` had `"true": ["8"]` **and** `"true": ["12"]`; a dict
+  literal keeps only the last, so **section 8 (Hardware Requirements) was
+  silently dropped from every hardware tender** built by the template backend.
+  Same for `software`: `"true": ["7"]` (Support) was lost to `"true": ["12"]`.
+  Merged to `["8","12"]` / `["7","12"]`. New `tests/test_scenarios.py` (4 tests)
+  locks both the data and the behaviour (a hardware item now yields section 8,
+  a software item section 7). Caught by ruff `F601`.
+- **Packaging — `pyproject.toml`** (PEP 621): metadata, classifiers,
+  `requires-python>=3.10`, runtime dep `openpyxl` only, optional extras
+  (`claude`/`pdf`/`embedded`/`dev`), a **`purchasing-coach` console script**
+  (`coach.cli:main`), dynamic version from `coach.__version__`, and tool config
+  for **pytest** and **ruff**. `pip install -e ".[dev]"` verified; console
+  script runs.
+- **pytest scoping fix:** `testpaths=["tests"]` — previously `pytest` from the
+  repo root also swept in `stress_test.py` (matches the `*_test.py` glob), so
+  every run silently executed the manual stress harness and inflated the count
+  (~122 vs the real 107). Now the suite is exactly the 107 real tests; the
+  harness still runs manually via `python stress_test.py`.
+- **Linting — ruff**, config in `pyproject.toml` (`E4/E7/E9/F/W`; `B`/`UP`
+  deferred — see follow-up 13). Fixed all findings: removed unused imports,
+  dropped a redundant local re-import + added `__all__` in
+  `coach/backends/__init__.py`, hoisted a mid-file `import re` in
+  `retrieval/index.py`, removed empty f-strings, cleaned unused test vars.
+  `ruff check .` is clean.
+- **CI — `.github/workflows/ci.yml`:** on push (`main`, `claude/**`) and PRs —
+  a **test matrix on Python 3.10/3.11/3.12** (`ruff check .` + `pytest`) and a
+  separate **build job** that builds `dist/purchasing-coach.pyz`, smoke-tests it
+  (`/quit` against the keyword backend), and uploads it as an artifact.
+  *Untested live here (no GitHub Actions runner in-sandbox) — verify the first
+  run goes green; see follow-up 13.*
+- **.pyz rebuilt (326 KB)** with the section-8 fix bundled (verified).
+  `requirements-dev.txt` gains `ruff`; README Development section updated
+  (`pip install -e ".[dev]"`, `ruff check .`, CI note); `.gitignore` gains
+  `*.egg-info/`.
+- Tests: **107 passing** (the real suite; +4 scenarios), ruff clean.
+- **Drive checked:** guideline + template both still `modifiedTime
+  2026-06-10T13:05:11Z` — no sample refresh needed.
+- **main synced** after the green run (fetch first per iter 15).
+
 ## Iteration 16 — 2026-06-17
 
 User request: "add the option to use an embedded SLM that deploys together with
@@ -742,3 +789,29 @@ Compliance Tracker) from the template, docx/md/txt loaders, offline tests.
     deterministic safety nets + item-relevant questions backstop it, but worth a
     look). Also worth trying the "ship `.pyz` + `models/` folder" layout to
     confirm the adjacent-dir path on a real machine.
+13. **CI verification + lint tightening (iter 17).** The CI workflow
+    (`.github/workflows/ci.yml`) has not run on a real GitHub Actions runner
+    from here — confirm the first push goes green (test matrix 3.10–3.12 + the
+    build/smoke job). Then tighten ruff by enabling `B` (bugbear) and `UP`
+    (pyupgrade): the known findings are duplicate stopwords in
+    `retrieval/tokenizer.py` (`B033`, harmless), unused loop vars in
+    `bm25.py`/`keyword.py` (`B007`), an empty ABC hook in `backends/base.py`
+    (`B027` — add `@abstractmethod` or document), and a `raise ... from` in a
+    backend (`B904`). All low-risk; left out of pass 1 to keep the first CI run
+    green with minimal churn.
+
+## Loop progress (production-quality, target ≥10 passes)
+
+- **Pass 1 (iter 17):** packaging (`pyproject.toml` + console script), pytest
+  scoping fix, ruff lint + clean-up, CI workflow — and fixed a real
+  section-dropping bug (`F601`) the linter surfaced.
+- **Planned next passes (rough backlog):** (2) ruff `B`/`UP` tightening +
+  confirm CI green; (3) type hints + `mypy`/`ty` in CI; (4) structured
+  `logging` instead of bare `print` in library code, with a `--verbose` flag;
+  (5) input validation + clearer error messages (bad guideline/template paths,
+  empty guideline, oversized inputs); (6) webui hardening (request limits,
+  timeouts, security headers, path-traversal tests); (7) docstring/typing
+  coverage + `CONTRIBUTING.md` + `CHANGELOG.md`; (8) test coverage measurement
+  (`pytest-cov`) + fill gaps (excel edge cases, documents loaders, format);
+  (9) performance pass on retrieval/index for large guidelines; (10) packaging
+  polish (wheel build in CI, version bump, release notes). Reassess each pass.

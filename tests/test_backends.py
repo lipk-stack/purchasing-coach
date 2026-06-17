@@ -5,7 +5,6 @@ import json
 
 import pytest
 
-from coach import backends
 from coach.backends import BackendError, OpenAICompatBackend, extract_json
 from coach.backends import openai_compat as _oac
 from coach.models import InterviewPlan, RequirementRow, TenderChecklist

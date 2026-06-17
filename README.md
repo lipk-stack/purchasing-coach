@@ -285,11 +285,17 @@ reviewer sign-off block.
 ## Development
 
 ```bash
-pip install -r requirements-dev.txt
+pip install -e ".[dev]"               # editable install + pytest/ruff/python-docx
 python scripts/make_samples.py        # rebuild sample docx/xlsx
+ruff check .                          # lint
 pytest                                # offline — LLM calls are faked/mocked
 python scripts/build_portable.py      # rebuild dist/purchasing-coach.pyz
 ```
+
+Packaging/metadata and tool config (pytest, ruff) live in `pyproject.toml`;
+installing also provides a `purchasing-coach` console script. Lint and the full
+test matrix (Python 3.10–3.12) plus a portable-build smoke test run in CI on
+every push/PR (`.github/workflows/ci.yml`).
 
 Project layout:
 
