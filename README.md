@@ -295,7 +295,9 @@ python scripts/build_portable.py      # rebuild dist/purchasing-coach.pyz
 Packaging/metadata and tool config (pytest, ruff) live in `pyproject.toml`;
 installing also provides a `purchasing-coach` console script. Lint and the full
 test matrix (Python 3.10–3.12) plus a portable-build smoke test run in CI on
-every push/PR (`.github/workflows/ci.yml`).
+every push/PR (`.github/workflows/ci.yml`). See
+[CONTRIBUTING.md](CONTRIBUTING.md) for the dev workflow and
+[CHANGELOG.md](CHANGELOG.md) for release notes.
 
 Project layout:
 

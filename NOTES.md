@@ -877,13 +877,20 @@ Compliance Tracker) from the template, docx/md/txt loaders, offline tests.
   (json_schema → json_object → no response_format), and the unexpected-shape
   error. `openai_compat.py` 82% → **89%**, total **83% → 84%**. 167 tests, ruff
   clean, tests-only (no .pyz change).
-- **Planned next passes (rough backlog):** (2) ruff `B`/`UP` tightening +
-  confirm CI green; (3) type hints + `mypy`/`ty` in CI; (4) structured
-  `logging` instead of bare `print` in library code, with a `--verbose` flag;
-  (5) input validation + clearer error messages (bad guideline/template paths,
-  empty guideline, oversized inputs); (6) webui hardening (request limits,
-  timeouts, security headers, path-traversal tests); (7) docstring/typing
-  coverage + `CONTRIBUTING.md` + `CHANGELOG.md`; (8) test coverage measurement
-  (`pytest-cov`) + fill gaps (excel edge cases, documents loaders, format);
-  (9) performance pass on retrieval/index for large guidelines; (10) packaging
-  polish (wheel build in CI, version bump, release notes). Reassess each pass.
+- **Pass 10 (iter 17):** project/release hygiene — added `CHANGELOG.md`
+  (Keep a Changelog: Unreleased + 2.1.0 / 2.0.0 / 1.0.0) and `CONTRIBUTING.md`
+  (dev setup, lint/test/build loop, pure-Python & rebuild-the-.pyz rules),
+  linked from the README. Docs-only; 167 tests, ruff clean.
+
+**LOOP COMPLETE — 10 passes done, all synced to main.** Net effect: the app is
+materially more production-ready — packaged (`pyproject.toml` + console script),
+linted (ruff E/F/W/B/UP, clean), CI-wired (3.10–3.12 matrix + build smoke test),
+**~84% test-covered** (was ~57%, retrieval/Claude/CLI/models all went from 0–77%
+to 88–100%), with input/parse/network hardening, structured logging, and a real
+section-dropping bug fixed.
+
+Remaining backlog for future routine runs: confirm CI goes green on a real
+runner (follow-up 13); type hints + mypy in CI; push `template.py` (58%),
+`webui.py` and `cli.py` coverage higher; performance pass on retrieval for very
+large guidelines; wheel build + tagged release in CI; the still-open live-LLM /
+embedded-model exercises (follow-ups 1, 10, 12).
