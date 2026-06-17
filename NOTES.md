@@ -844,6 +844,14 @@ Compliance Tracker) from the template, docx/md/txt loaders, offline tests.
   `pytest-cov` into the `dev` extra + `[tool.coverage.run]` config (no failing
   threshold, to keep CI stable). 132 tests, ruff clean. No source change — .pyz
   unchanged.
+- **Pass 6 (iter 17):** covered the two remaining 0% modules. `test_claude.py`
+  (+5, anthropic SDK faked): missing-package error, default model/name,
+  `stream_chat`, `complete_json` JSON parse, `health_check` ok/error →
+  `claude_api.py` **100%**. `test_cli.py` (+5): missing guideline → exit 2,
+  empty guideline → exit 2 (clean message), interactive `/quit` and `/help`
+  flows → exit 0, EOF exits cleanly → `cli.py` **65%** (remainder is the live
+  chat-stream body + `--web`). Coverage **77% → 82%**. 142 tests, ruff clean,
+  tests-only (no .pyz change).
 - **Planned next passes (rough backlog):** (2) ruff `B`/`UP` tightening +
   confirm CI green; (3) type hints + `mypy`/`ty` in CI; (4) structured
   `logging` instead of bare `print` in library code, with a `--verbose` flag;
