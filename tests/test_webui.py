@@ -8,6 +8,7 @@ import urllib.request
 import pytest
 from openpyxl import load_workbook
 
+import coach.webui as webui_mod
 from coach.llm import Coach
 from coach.webui import WebUI
 from tests.test_tender import CHECKLIST, FakeBackend
@@ -116,3 +117,37 @@ def test_bad_requests(server):
     with pytest.raises(urllib.error.HTTPError) as err:
         _get(base + "/api/download/unknown.xlsx")
     assert err.value.code == 404
+
+
+def test_security_headers_present(server):
+    base, _ = server
+    _, headers, _ = _get(base + "/api/meta")
+    assert headers.get("X-Content-Type-Options") == "nosniff"
+
+
+def test_oversized_body_rejected(server, monkeypatch):
+    base, _ = server
+    monkeypatch.setattr(webui_mod, "MAX_BODY_BYTES", 8)
+    with pytest.raises(urllib.error.HTTPError) as err:
+        _post(base + "/api/chat",
+              {"messages": [{"role": "user", "content": "hello world"}]})
+    assert err.value.code == 413
+
+
+def test_session_id_traversal_is_neutralised(tmp_path, monkeypatch):
+    sdir = tmp_path / "sessions"
+    sdir.mkdir()
+    monkeypatch.setattr(webui_mod, "SESSIONS_DIR", sdir)
+    ui = WebUI(Coach("g", FakeBackend()), FakeBackend(), "g.docx", None, tmp_path)
+
+    # A malicious id is not honoured — a safe id is minted and the file stays
+    # inside the sessions directory.
+    sid = ui.save_session({"id": "../../evil", "title": "x"})
+    assert sid != "../../evil"
+    assert (sdir / f"{sid}.json").exists()
+    assert not (tmp_path / "evil.json").exists()
+
+    # Reads/deletes with traversal ids are safe no-ops.
+    assert ui._session_path("../bad") is None
+    assert ui.load_session("../../evil") is None
+    assert ui.delete_session("../../etc/passwd") is False

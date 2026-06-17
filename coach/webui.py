@@ -11,6 +11,7 @@ fonts, no CDN) so it works on locked-down, offline corporate machines.
 """
 
 import json
+import re
 import threading
 import uuid
 import webbrowser
@@ -29,6 +30,13 @@ from .tender import output_name
 
 SESSIONS_DIR = Path.home() / ".purchasing-coach" / "sessions"
 
+# Session ids are used as filenames, so constrain them to a safe charset to
+# prevent path traversal outside SESSIONS_DIR.
+_SAFE_SESSION_ID = re.compile(r"[A-Za-z0-9_-]{1,64}\Z")
+
+# Cap request bodies so a bogus Content-Length can't exhaust memory.
+MAX_BODY_BYTES = 8 * 1024 * 1024
+
 
 class WebUI:
     def __init__(self, coach: Coach, backend, guideline_path: str,
@@ -43,7 +51,15 @@ class WebUI:
         SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
 
     # -- session persistence --------------------------------------------------
-    def _session_path(self, sid: str) -> Path:
+    def _session_path(self, sid: str) -> Path | None:
+        """Map a session id to its file, or None if the id is unsafe.
+
+        Session ids come from the URL/JSON body, so they are constrained to a
+        safe charset to prevent path traversal (e.g. ``../../etc/foo``) outside
+        the sessions directory.
+        """
+        if not _SAFE_SESSION_ID.match(sid or ""):
+            return None
         return SESSIONS_DIR / f"{sid}.json"
 
     def list_sessions(self) -> list[dict]:
@@ -63,7 +79,7 @@ class WebUI:
 
     def load_session(self, sid: str) -> dict | None:
         p = self._session_path(sid)
-        if not p.exists():
+        if p is None or not p.exists():
             return None
         try:
             return json.loads(p.read_text("utf-8"))
@@ -71,7 +87,10 @@ class WebUI:
             return None
 
     def save_session(self, data: dict) -> str:
-        sid = data.get("id") or str(uuid.uuid4())[:12]
+        # Honour a caller-supplied id only if it is safe; otherwise mint one.
+        sid = data.get("id") or ""
+        if not _SAFE_SESSION_ID.match(sid):
+            sid = str(uuid.uuid4())[:12]
         data["id"] = sid
         data["updated_at"] = datetime.now().isoformat(timespec="seconds")
         if not data.get("created_at"):
@@ -83,7 +102,7 @@ class WebUI:
 
     def delete_session(self, sid: str) -> bool:
         p = self._session_path(sid)
-        if p.exists():
+        if p is not None and p.exists():
             p.unlink()
             return True
         return False
@@ -246,6 +265,16 @@ class _Handler(BaseHTTPRequestHandler):
         path = self.path.split("?")[0]
         try:
             length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            self._json(400, {"error": "invalid Content-Length"})
+            return
+        if length < 0:
+            self._json(400, {"error": "invalid Content-Length"})
+            return
+        if length > MAX_BODY_BYTES:
+            self._json(413, {"error": "request body too large"})
+            return
+        try:
             payload = json.loads(self.rfile.read(length) or b"{}")
         except (ValueError, json.JSONDecodeError):
             self._json(400, {"error": "invalid JSON body"})
@@ -338,6 +367,8 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
         self.end_headers()
         self.wfile.write(body)
 

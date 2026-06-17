@@ -823,6 +823,17 @@ Compliance Tracker) from the template, docx/md/txt loaders, offline tests.
   so Windows-exported guidelines load. The CLI wraps `load_guideline` and prints
   a clean message + exit code 2 instead of a traceback. +7 tests
   (`test_documents.py`); 113 total, ruff clean, .pyz rebuilt.
+- **Pass 4 (iter 17):** web UI hardening (it's a localhost HTTP service).
+  Closed a **path-traversal** risk — session ids (from the URL/JSON body) were
+  used directly as filenames (`SESSIONS_DIR/{sid}.json`), so `{"id":"../../evil"}`
+  could write outside the sessions dir; ids are now constrained to
+  `[A-Za-z0-9_-]{1,64}` (`_session_path` returns None for unsafe ids;
+  `save_session` mints a safe id instead of honouring a bad one). Added a
+  **request-body cap** (`MAX_BODY_BYTES = 8 MB`, returns 413) so a bogus
+  `Content-Length` can't exhaust memory, plus negative/invalid length → 400.
+  Added **`X-Content-Type-Options: nosniff`** and `Referrer-Policy: no-referrer`
+  to all responses. +3 tests (`test_webui.py`); 116 total, ruff clean, .pyz
+  rebuilt (327 KB).
 - **Planned next passes (rough backlog):** (2) ruff `B`/`UP` tightening +
   confirm CI green; (3) type hints + `mypy`/`ty` in CI; (4) structured
   `logging` instead of bare `print` in library code, with a `--verbose` flag;
