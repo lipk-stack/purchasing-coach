@@ -2,6 +2,53 @@
 
 Reference this file at the start of each routine run.
 
+## Iteration 20 — 2026-06-17 (granular: atomic per-obligation checklist rows)
+
+Resumed after the user merged their own work to main (`568e632` "Add portable
+embedded bundle with native DLL bootstrap" — author lipk-stack). Fast-forwarded
+the dev branch to `origin/main` first (clean ff, no conflicts), re-ran the
+suite (**180 passing, ruff clean, 86% cov**), then picked the next enhancement
+aimed squarely at the user's core ask: *granular* clauses "derived from the
+guideline in detail".
+
+- **Gap found (real, on the genuine guideline):** `parse_clause_requirements`
+  mapped **one normative paragraph → one checklist row**, but 28 of the 202
+  parsed paragraphs bundle **several distinct vendor obligations in separate
+  sentences** — e.g. clause 6.1 "Both server and client components must be
+  synchronised with the local time server. Web-based systems must support
+  Microsoft Edge." was a *single* row, so the vendor couldn't mark Edge
+  compliant but time-sync non-compliant. Not granular enough for a sign-off
+  tracker.
+- **Fix — atomic splitting (`coach/guideline.py`):** new
+  **`split_into_sentences()`** (boundary regex with abbreviation + decimal
+  re-merge so "e.g." and clause numbers like "5.6" don't false-split) and
+  **`atomic_requirements()`**. The latter splits a paragraph so **every
+  normative sentence anchors its own row**; non-normative sentences (lead-in or
+  trailing context) attach to the nearest preceding anchor (leading prose → the
+  first anchor) so no descriptive sentence becomes a bogus row and no
+  obligation loses context. A paragraph with ≤1 normative sentence is returned
+  **unchanged** (preserves context — e.g. the descriptive 3.1 stays one row).
+  `parse_clause_requirements` now emits one row per atomic statement and
+  **M/O-classifies each on its own wording** (a "should" split out of a "must"
+  paragraph is now correctly **O**, not inherited **M**).
+- **Impact on the real guideline:** 202 → **212** grounded requirement rows
+  (+10), each genuinely distinct. Verified end-to-end: full hardware tender
+  expands to 205 rows; wrote a real checklist against `TENDER_TEMPLATE.xlsx` →
+  3 sheets, 207 tracker rows, reloads cleanly in openpyxl (table + dropdowns +
+  review sheet intact).
+- Tests: **184 passing** (+4 in `test_guideline.py`: sentence-split keeps
+  abbreviations/decimals whole; compound paragraph → per-obligation rows;
+  context attaches to nearest obligation / single-obligation unchanged;
+  per-statement M/O). ruff clean. Existing tests unaffected (their fixtures are
+  single-sentence paragraphs → returned unchanged).
+- **Drive checked:** guideline + template both still `modifiedTime
+  2026-06-10T13:05:11Z` — no sample refresh needed.
+- **main synced** after the green run.
+- Follow-up 1 (live-LLM quality review) and the iter-19 embedded follow-ups
+  (model quality/perf, embedded Python, GPU, CI for the heavy build,
+  cross-platform DLL bootstrap) remain open — all blocked on resources absent
+  from this sandbox.
+
 ## Iteration 19 — 2026-06-17 (portable embedded bundle: out-of-the-box delivery)
 
 Built and verified a fully portable embedded distribution that runs without

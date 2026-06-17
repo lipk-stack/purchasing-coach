@@ -9,6 +9,18 @@ to follow [Semantic Versioning](https://semver.org/).
 Production-quality hardening pass.
 
 ### Added
+- **Atomic, per-obligation checklist rows** — a guideline requirement
+  paragraph that bundles several distinct vendor obligations in separate
+  sentences (e.g. clause 6.1 "Both server and client components must be
+  synchronised with the local time server. Web-based systems must support
+  Microsoft Edge.") is now split so each obligation is a separately verifiable
+  checklist row. Every atomic statement is M/O-classified on its own wording,
+  so a "should" sentence bundled into a "must" paragraph is correctly flagged
+  recommended rather than inheriting mandatory. Non-normative lead-in or
+  trailing context attaches to the nearest obligation (never becomes a row of
+  its own), and single-obligation paragraphs are left whole. New
+  `atomic_requirements()` / `split_into_sentences()` in `coach/guideline.py`;
+  the real XXEON guideline expands from 202 to 212 grounded requirements.
 - **Portable embedded bundle** — `python scripts/build_portable.py --with-model`
   now produces a fully self-contained `dist/purchasing-coach-embedded.pyz`
   (~1 GB) with the Qwen2.5-1.5B GGUF model bundled inside. A companion

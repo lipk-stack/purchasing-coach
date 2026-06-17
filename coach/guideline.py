@@ -71,13 +71,73 @@ def classify_obligation(text: str) -> str:
     return "M"
 
 
+# A sentence boundary: sentence-ending punctuation followed by whitespace and
+# the start of a new sentence. We re-merge a fragment when the previous one ends
+# in a known abbreviation or a bare decimal (e.g. a clause number like "5.6" or
+# "e.g.") so those don't trigger a false split.
+_SENTENCE_BOUNDARY = re.compile(r"(?<=[.?!])\s+(?=[\"'(]?[A-Z])")
+_ABBREV_END = re.compile(
+    r"\b(?:e\.g|i\.e|etc|vs|approx|incl|dr|mr|mrs|ms|inc|ltd|dept|govt|fig|"
+    r"u\.s|p\.a)\.$", re.I)
+_DECIMAL_END = re.compile(r"\b\d+\.$")
+
+
+def split_into_sentences(text: str) -> list[str]:
+    """Split text into sentences, keeping abbreviations and decimals intact."""
+    parts = _SENTENCE_BOUNDARY.split(text.strip())
+    out: list[str] = []
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
+        if out and (_ABBREV_END.search(out[-1]) or _DECIMAL_END.search(out[-1])):
+            out[-1] = f"{out[-1]} {part}"
+        else:
+            out.append(part)
+    return out
+
+
+def atomic_requirements(text: str) -> list[str]:
+    """Split a compound requirement paragraph into atomic obligations.
+
+    A requirement paragraph often bundles several distinct vendor obligations in
+    separate sentences (e.g. "Both server and client components must be
+    synchronised with the local time server. Web-based systems must support
+    Microsoft Edge."). For a compliance checklist each must be verified and
+    signed off on its own, so the paragraph is broken at sentence boundaries:
+    every sentence carrying a normative cue anchors its own atomic requirement,
+    and any non-normative sentence (a lead-in or trailing context) attaches to
+    the nearest preceding normative anchor — leading prose attaches to the first
+    anchor — so no obligation is emitted without its context and no descriptive
+    sentence becomes a row of its own. A paragraph with at most one normative
+    sentence is returned unchanged, preserving full context.
+    """
+    sentences = split_into_sentences(text)
+    anchors = [i for i, s in enumerate(sentences) if _NORMATIVE.search(s)]
+    if len(anchors) <= 1:
+        return [text.strip()]
+    groups: list[list[str]] = [[] for _ in anchors]
+    for i, sentence in enumerate(sentences):
+        slot = 0
+        for ai, ni in enumerate(anchors):
+            if ni <= i:
+                slot = ai
+            else:
+                break
+        groups[slot].append(sentence)
+    return [" ".join(g) for g in groups if g]
+
+
 def parse_clause_requirements(text: str) -> dict[str, list[RequirementRow]]:
     """Break the guideline body into granular, per-clause requirement rows.
 
-    Each normative paragraph under a numbered clause heading becomes one
-    :class:`RequirementRow`, carrying the clause ref, the real heading title
-    and an M/O flag derived from the paragraph's own wording. Non-normative
-    prose (e.g. the Introduction) is skipped. The result is the deterministic,
+    Each normative paragraph under a numbered clause heading is split into its
+    atomic obligations (see :func:`atomic_requirements`) and every one becomes a
+    :class:`RequirementRow`, carrying the clause ref, the real heading title and
+    an M/O flag derived from that statement's own wording — so a "should"
+    sentence bundled into a "must" paragraph is flagged recommended, not
+    mandatory. Non-normative prose (e.g. the Introduction) is skipped. The
+    result is the deterministic,
     guideline-derived source of truth the checklist is expanded from, so the
     vendor-facing requirements are detailed and verbatim rather than a model
     paraphrase. Returns an ordered ``{clause_ref: [rows...]}`` map following
@@ -97,9 +157,10 @@ def parse_clause_requirements(text: str) -> dict[str, list[RequirementRow]]:
             continue
         if ref is None or not _NORMATIVE.search(stripped):
             continue
-        by_clause[ref].append(
-            RequirementRow(ref=ref, section=title, requirement=stripped,
-                           mandatory=classify_obligation(stripped)))
+        for statement in atomic_requirements(stripped):
+            by_clause[ref].append(
+                RequirementRow(ref=ref, section=title, requirement=statement,
+                               mandatory=classify_obligation(statement)))
     return by_clause
 
 

@@ -1,11 +1,12 @@
 """Clause indexing + checklist reconciliation (deterministic, no LLM)."""
 
-from coach.guideline import (classify_obligation, clause_sort_key,
-                            coverage_questions, ensure_core_sections,
-                            expand_requirements, is_affirmative, normalize_ref,
+from coach.guideline import (atomic_requirements, classify_obligation,
+                            clause_sort_key, coverage_questions,
+                            ensure_core_sections, expand_requirements,
+                            is_affirmative, normalize_ref,
                             parse_clause_requirements, parse_clauses,
                             reconcile_requirements, relevant_coverage_questions,
-                            sections_from_answers)
+                            sections_from_answers, split_into_sentences)
 from coach.models import RequirementRow
 
 GUIDELINE = """\
@@ -117,6 +118,52 @@ def test_parse_clause_requirements_skips_non_normative_prose():
     reqs = parse_clause_requirements(text)
     assert reqs["3.1"] == []  # descriptive prose is not a requirement
     assert len(reqs["4.1"]) == 1
+
+
+def test_split_into_sentences_keeps_abbreviations_and_decimals_whole():
+    # A decimal (clause number) and an abbreviation must not split a sentence.
+    text = ("Vendors must support v5.6 of the platform. Edge, e.g. the latest "
+            "version, must be supported.")
+    assert split_into_sentences(text) == [
+        "Vendors must support v5.6 of the platform.",
+        "Edge, e.g. the latest version, must be supported."]
+
+
+def test_atomic_requirements_splits_each_obligation_into_its_own_row():
+    text = ("Both server and client components must be synchronised with the "
+            "local time server. Web-based systems must support Microsoft Edge.")
+    assert atomic_requirements(text) == [
+        "Both server and client components must be synchronised with the "
+        "local time server.",
+        "Web-based systems must support Microsoft Edge."]
+
+
+def test_atomic_requirements_attaches_context_to_nearest_obligation():
+    # A non-normative lead-in attaches to the first obligation; trailing
+    # context attaches to the obligation it follows — neither becomes its own
+    # row, and a single-obligation paragraph is returned unchanged.
+    lead = ("This applies to all systems. The vendor must encrypt data at "
+            "rest. AES-256 is the baseline.")
+    assert atomic_requirements(lead) == [
+        "This applies to all systems. The vendor must encrypt data at rest. "
+        "AES-256 is the baseline."]
+    multi = ("This applies to all systems. The vendor must encrypt data at "
+             "rest. Backups must also be encrypted. Keys are rotated yearly.")
+    assert atomic_requirements(multi) == [
+        "This applies to all systems. The vendor must encrypt data at rest.",
+        "Backups must also be encrypted. Keys are rotated yearly."]
+
+
+def test_parse_clause_requirements_splits_compound_paragraph_per_obligation():
+    text = ("### 6.1 Architecture\n\nBoth server and client components must be "
+            "synchronised with the local time server. Web-based systems should "
+            "support Microsoft Edge.\n")
+    rows = parse_clause_requirements(text)["6.1"]
+    assert len(rows) == 2
+    # Per-statement obligation: the "should" sentence is recommended, not
+    # mandatory inherited from the "must" sibling.
+    assert rows[0].mandatory == "M"
+    assert rows[1].mandatory == "O"
 
 
 def test_expand_requirements_fans_out_section_to_subclauses():
