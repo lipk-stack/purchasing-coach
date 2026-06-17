@@ -870,6 +870,13 @@ Compliance Tracker) from the template, docx/md/txt loaders, offline tests.
   `except`); it now logs `log.exception` on POST failures and chat-stream errors
   via `coach.webui`. +3 tests (`--verbose` level, 500-is-logged, cli flow);
   156 tests, ruff clean, .pyz rebuilt.
+- **Pass 9 (iter 17):** covered the primary live backend `openai_compat.py`.
+  `test_openai_compat.py` (+11): `extract_json` (plain / fenced / fenced-no-lang
+  / surrounding prose / invalid→BackendError), provider-preset & base-url
+  resolution, `_headers` auth, the `complete_json` **format-fallback chain**
+  (json_schema → json_object → no response_format), and the unexpected-shape
+  error. `openai_compat.py` 82% → **89%**, total **83% → 84%**. 167 tests, ruff
+  clean, tests-only (no .pyz change).
 - **Planned next passes (rough backlog):** (2) ruff `B`/`UP` tightening +
   confirm CI green; (3) type hints + `mypy`/`ty` in CI; (4) structured
   `logging` instead of bare `print` in library code, with a `--verbose` flag;
