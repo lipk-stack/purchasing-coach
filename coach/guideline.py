@@ -348,6 +348,84 @@ def coverage_questions(clauses: dict[str, str]) -> list[tuple[str, str]]:
     return out
 
 
+# The item-type-specific coverage topics — these are the questions that only
+# apply to a particular kind of purchase (hardware vs. software vs. an
+# integration), so they are the ones worth tailoring to the item. Everything
+# else (contract, data/security, support, cloud, financial, post-implementation,
+# cybersecurity assessment) can apply to any purchase and is always asked.
+ITEM_TYPE_ROOTS = {"6", "8", "9"}
+
+# Plain-language cues that signal an item-type topic is relevant, beyond the
+# topic's own dedupe keywords. Lets "20 laptops" select the hardware question
+# and "Microsoft 365 subscription" select the software question without the
+# buyer having to use the guideline's own vocabulary.
+_ITEM_SIGNALS = {
+    "6": ("integrat", "interoper", "sso", "single sign", "api", "interface",
+          "connector", "plugin", "ldap", "active directory", "saml", "oauth",
+          "existing system"),
+    "8": ("hardware", "equipment", "appliance", "device", "physical", "laptop",
+          "desktop", "notebook", "pc", "workstation", "server", "monitor",
+          "printer", "scanner", "switch", "router", "firewall", "storage",
+          "nas", "san", "rack", "ups", "peripheral", "tablet", "phone",
+          "handset", "camera", "sensor", "cabling", "kiosk"),
+    "9": ("software", "licen", "application", "subscription", "app", "saas",
+          "platform", "suite", "erp", "crm", "office", "microsoft", "adobe",
+          "antivirus", "database", "middleware", "module", "portal"),
+}
+
+
+def _item_relevance(include_root: str, keywords, item_lower: str) -> int:
+    """Count how many of a topic's cues appear in the item description."""
+    cues = set(keywords) | set(_ITEM_SIGNALS.get(include_root, ()))
+    return sum(1 for cue in cues if cue and cue in item_lower)
+
+
+def relevant_coverage_questions(
+    clauses: dict[str, str], item_description: str
+) -> list[tuple[str, str]]:
+    """Coverage questions tailored to the item or service being purchased.
+
+    Same guideline-grounded questions as :func:`coverage_questions`, but the
+    item-type-specific topics (integration 6, hardware 8, software 9) are kept
+    only when the item description points to them — so a buyer purchasing
+    laptops isn't asked which software-licensing model they prefer, and a SaaS
+    buyer isn't asked to list physical hardware. The relevant item-type
+    questions lead the list. Cross-cutting topics are always kept because they
+    can apply to any purchase. When the item gives no signal for any item-type
+    topic (a vague description), all topics are kept — the previous broad,
+    compliance-safe behaviour — so the interview never under-asks.
+    """
+    if not clauses:
+        return []
+    present = set(clauses)
+    item_lower = (item_description or "").lower()
+
+    available = []
+    for root, keywords, question, include_root in _COVERAGE:
+        if not any(ref == root or ref.startswith(root + ".") for ref in present):
+            continue
+        gated = include_root in ITEM_TYPE_ROOTS
+        score = (_item_relevance(include_root, keywords, item_lower)
+                 if gated else 0)
+        available.append((",".join(keywords), question, gated, score))
+
+    any_item_match = any(gated and score > 0
+                         for _, _, gated, score in available)
+
+    leading: list[tuple[str, str]] = []
+    rest: list[tuple[str, str]] = []
+    for csv, question, gated, score in available:
+        if not gated:
+            rest.append((csv, question))
+        elif score > 0:
+            leading.append((csv, question))      # relevant to this item
+        elif not any_item_match:
+            rest.append((csv, question))          # vague item — keep it
+        # else: a clearly different item type — drop this question.
+    return leading + rest
+
+
+
 def sections_from_answers(
     answers: list[tuple[str, str]], clauses: dict[str, str]
 ) -> list[str]:

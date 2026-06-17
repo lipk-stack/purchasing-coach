@@ -4,7 +4,8 @@ from coach.guideline import (classify_obligation, clause_sort_key,
                             coverage_questions, ensure_core_sections,
                             expand_requirements, is_affirmative, normalize_ref,
                             parse_clause_requirements, parse_clauses,
-                            reconcile_requirements, sections_from_answers)
+                            reconcile_requirements, relevant_coverage_questions,
+                            sections_from_answers)
 from coach.models import RequirementRow
 
 GUIDELINE = """\
@@ -215,6 +216,70 @@ def test_coverage_questions_gated_on_present_sections():
     assert "support and maintenance" not in joined  # section 7 absent
     # Unstructured guideline grounds no coverage questions.
     assert coverage_questions({}) == []
+
+
+HWSW_GUIDELINE = """\
+# Guideline
+
+## 5 INFORMATION SECURITY CONSIDERATIONS
+
+### 5.1 Data Protection
+
+Personal data must be protected.
+
+## 6 INTEROPERABILITY
+
+### 6.1 Integration
+
+Systems must integrate.
+
+## 8 HARDWARE REQUIREMENTS
+
+### 8.4 Warranty
+
+Warranty periods must be specified.
+
+## 9 SOFTWARE REQUIREMENTS
+
+### 9.1 Licensing
+
+Licensing terms must be defined.
+"""
+
+
+def test_relevant_coverage_questions_tailors_to_hardware_item():
+    clauses = parse_clauses(HWSW_GUIDELINE)
+    questions = " ".join(
+        q for _, q in relevant_coverage_questions(clauses, "20 Dell laptops")
+    ).lower()
+    # Hardware is asked; the software/integration item-type questions are not.
+    assert "physical hardware" in questions
+    assert "software or application licensing" not in questions
+    assert "integrate with existing" not in questions
+    # Cross-cutting topics are always asked.
+    assert "personal data" in questions
+
+
+def test_relevant_coverage_questions_tailors_to_software_item():
+    clauses = parse_clauses(HWSW_GUIDELINE)
+    questions = " ".join(
+        q for _, q in
+        relevant_coverage_questions(clauses, "Microsoft 365 subscription")
+    ).lower()
+    assert "software or application licensing" in questions
+    assert "physical hardware" not in questions
+
+
+def test_relevant_coverage_questions_keeps_all_for_vague_item():
+    clauses = parse_clauses(HWSW_GUIDELINE)
+    vague = [q for _, q in relevant_coverage_questions(clauses, "an IT solution")]
+    full = [q for _, q in coverage_questions(clauses)]
+    # No item-type signal -> fall back to the full, compliance-safe list.
+    assert set(vague) == set(full)
+
+
+def test_relevant_coverage_questions_empty_without_clauses():
+    assert relevant_coverage_questions({}, "laptops") == []
 
 
 def test_is_affirmative_reads_yes_no_and_substantive_answers():

@@ -35,13 +35,17 @@ procurement guideline in `.docx`) and lets you:
    Compliance & Risk (11) — so they can never be dropped even if the model
    under-selects; you're told when this happens so you can review applicability.
 
-   The interview itself is **reverse-prompted from the guideline**: alongside
-   the model's questions it always probes applicability of every major section
-   present (hardware, software/licensing, cloud/SaaS hosting, personal/payment
-   data, cybersecurity assessments, integration/SSO, support level, contract
-   duration, financial/TCO expectations, post-implementation reviews,
-   deployment model) so the right sections — and therefore the full
-   set of relevant requirements — make it into the checklist. **Your answers
+   The interview itself is **reverse-prompted from the guideline and tailored
+   to what you're buying**: it probes applicability of the major sections
+   present (cloud/SaaS hosting, personal/payment data, cybersecurity
+   assessments, support level, contract duration, financial/TCO expectations,
+   post-implementation reviews, deployment model), but the **item-type-specific
+   questions are matched to the item** — describe "20 laptops" and you're asked
+   about hardware (not which software-licensing model you prefer); describe a
+   "Microsoft 365 subscription" and you're asked about software/licensing and
+   integration (not to list physical hardware). Each question still maps to a
+   real guideline section, and a vague item falls back to the full,
+   compliance-safe question set so nothing relevant is ever skipped. **Your answers
    drive section inclusion directly:** if you say the purchase includes
    hardware, integration, support, financial/TCO obligations or
    post-implementation reviews, that whole guideline section (8, 6, 7, 10, 12)
@@ -56,6 +60,20 @@ or API key needed), and ships as a **single-file `.pyz`** that needs nothing
 installed beyond a Python interpreter. The Claude API is supported as an
 optional backend. Use it in the terminal, or pass `--web` for a local
 browser chat UI served from the same file.
+
+For a **fully self-contained, portable** deployment with no server and no
+cloud, use the **embedded small language model** backend (`--backend embedded`):
+it runs a small GGUF model (Qwen2.5-1.5B-Instruct) directly in-process via
+`llama-cpp-python`. The model can be **deployed together with the application**
+in three ways, checked in this order: a path you pass with `--model-path`, a
+model **bundled inside the zipapp** (`python scripts/build_portable.py
+--with-model` produces a standalone ~1.2 GB `purchasing-coach-embedded.pyz`), or
+a **`models/` folder beside the `.pyz`** (drop any `.gguf` there, or point
+`EMBEDDED_MODEL_DIR` at it) — only if none of those are found does it fall back
+to a one-time download. Auto-detect also picks the embedded backend
+automatically when a model ships with the app. Even with **no model at all**,
+the built-in `keyword`, `bm25` and `template` backends generate a guideline-
+grounded interview and checklist with zero dependencies.
 
 The source documents (`XXEON_IT_Procurement_Guideline.docx` and
 `TENDER_TEMPLATE.xlsx`) live in the Google Drive **"Purchasing Guideline"**

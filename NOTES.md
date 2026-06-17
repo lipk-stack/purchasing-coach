@@ -2,6 +2,72 @@
 
 Reference this file at the start of each routine run.
 
+## Iteration 16 — 2026-06-17
+
+User request: "add the option to use an embedded SLM that deploys together with
+the application and is portable; make the interview questions relevant to the
+items/services being purchased, with reference from the guideline." Two distinct
+gaps, both closed deterministically (no live LLM needed).
+
+**Part A — item-relevant, guideline-grounded interview questions.**
+- The portable `keyword`/`bm25` planners were generating the interview from
+  `coverage_questions(clauses)` and **ignoring the item entirely** (the
+  `_item_desc` they parsed was unused) — every purchase got the identical full
+  question list.
+- **`coach/guideline.py` — new `relevant_coverage_questions(clauses, item)`**
+  (plus `ITEM_TYPE_ROOTS = {6,8,9}`, `_ITEM_SIGNALS`, `_item_relevance`). Keeps
+  the same guideline-grounded questions, but the **item-type-specific** topics
+  (integration 6, hardware 8, software 9) are kept only when the item points to
+  them — "20 Dell laptops" → hardware asked, software/integration dropped;
+  "Microsoft 365 subscription" → software asked, hardware dropped. Cross-cutting
+  topics (contract 4, data/security 5, support 7, cloud 11, financial 10,
+  post-impl 12, cyber 11.3) are always asked. **Vague item → keep all** (the
+  old broad, compliance-safe behaviour) so the interview never under-asks.
+  Relevant item-type questions lead the list. `coverage_questions` kept
+  unchanged for callers/tests that don't have an item.
+- **Wired into all planners:** `keyword.py`, `bm25.py` (now use the item), and
+  the LLM path `coach/llm.py` (`plan_interview` → `_ensure_coverage(plan, item)`
+  merges the *relevant* coverage questions the model didn't already ask).
+- **Verified on the genuine guideline via the keyword backend:** laptops → 10
+  Qs with hardware asked / software not; M365 SaaS → 10 Qs with software asked /
+  hardware not. The dropped sections aren't force-added either (the
+  `sections_from_answers` safety net is answer-driven, so not asking == not
+  adding — which is correct for the wrong item type).
+
+**Part B — embedded SLM deployed *with* the app (real portability).**
+- **Gap found:** `scripts/build_portable.py --with-model` bundles the GGUF into
+  `coach/models/` inside the zipapp, but `EmbeddedBackend._resolve_model` only
+  checked an explicit path → `EMBEDDED_MODEL_PATH` → home cache → download — it
+  **never looked at the bundled location**, so a "deployed-together" model was
+  never found.
+- **`coach/backends/embedded.py`:** resolution now inserts a bundled/adjacent
+  step (new `_bundled_model`, `_adjacent_model_dirs`, `_adjacent_gguf`,
+  `_packaged_gguf_name`): a `models/` folder (or loose `.gguf`) **beside the
+  `.pyz`/executable**, an `EMBEDDED_MODEL_DIR` override, or a `models/` folder
+  next to the package — checked before the cache/download. A model bundled
+  *inside* the zipapp can't be mmap'd from the archive, so it's **extracted once
+  into the cache** via `importlib.resources.as_file` then reused. `has_cached_model`
+  now also reports a shipped model, so **auto-detect picks the embedded backend**
+  when a model ships with the app. CLI `--model-path` help + README updated to
+  document the three deploy-together options and the keyword/bm25/template
+  zero-dependency fallback.
+- Note: the embedded backend still needs `llama-cpp-python` (a compiled dep) —
+  that's inherent to running a GGUF in-process and is the documented optional
+  install; the standard `.pyz` stays pure-Python. The `--with-model` build
+  produces `purchasing-coach-embedded.pyz` (~1.2 GB) for the all-in-one case.
+
+- Tests: **122 passing** (+7: 4 item-relevance in `test_guideline.py`; 3
+  bundled/adjacent + packaged-extraction in `test_embedded.py`). **.pyz rebuilt
+  (325 KB)** and confirmed to bundle `relevant_coverage_questions` +
+  `_bundled_model`/`_adjacent_model_dirs`; smoke-ran the bundled app.
+- **Drive checked:** guideline + template both still `modifiedTime
+  2026-06-10T13:05:11Z` — no sample refresh needed.
+- **Live LLM / live embedded model still untested in-sandbox** (no GGUF, no
+  llama-cpp-python, no API key, local servers unreachable). All of this layer is
+  deterministic and verified on the real guideline; follow-up 1's live quality
+  review stays open. New follow-up 12 added for the embedded variant.
+- **main synced** after the green run (verify `git fetch` first per iter 15).
+
 ## Iteration 15 — 2026-06-16
 
 Polished the Review & Approval sheet (follow-up 11) so the reviewer's go/no-go
@@ -652,3 +718,14 @@ Compliance Tracker) from the template, docx/md/txt loaders, offline tests.
     mock. To validate against the real model, run locally:
     `python purchasing-coach.pyz --guideline g.docx --template t.xlsx --web`
     with LM Studio's server started, then exercise chat + Stop + a tender run.
+12. **Embedded SLM variant — live test (iter 16).** The bundled-model
+    resolution and item-relevant questions are deterministic and verified, but
+    the actual GGUF/`llama-cpp-python` path has not run in-sandbox (compiled dep
+    + ~1.1 GB model can't be installed/downloaded here). Next run with the tools:
+    `python scripts/build_portable.py --with-model` then run the resulting
+    `purchasing-coach-embedded.pyz` and confirm (a) the bundled model is
+    extracted to the cache and loads, (b) a `/tender` run produces a sane
+    checklist, and (c) quality of the 1.5B model's clause selection (the
+    deterministic safety nets + item-relevant questions backstop it, but worth a
+    look). Also worth trying the "ship `.pyz` + `models/` folder" layout to
+    confirm the adjacent-dir path on a real machine.

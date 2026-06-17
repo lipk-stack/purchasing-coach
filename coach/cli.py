@@ -59,8 +59,10 @@ def main(argv: list[str] | None = None) -> int:
                              "backend)")
     parser.add_argument("--model-path",
                         help="Path to a local GGUF model file (embedded "
-                             "backend). Auto-downloads Qwen2.5-1.5B if "
-                             "omitted and no cached model exists.")
+                             "backend). If omitted, looks for a model shipped "
+                             "with the app (bundled, or a models/ folder beside "
+                             "it), then the cache, then auto-downloads "
+                             "Qwen2.5-1.5B.")
     parser.add_argument("--llm-model", "-m",
                         help="Model name (default: first model the local "
                              "server reports / claude-opus-4-8 for Claude)")

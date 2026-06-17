@@ -2,10 +2,10 @@
 
 from collections.abc import Iterator
 
-from .guideline import (CORE_SECTIONS, coverage_questions,
-                       ensure_core_sections, expand_requirements,
-                       parse_clauses, parse_clause_requirements,
-                       reconcile_requirements, sections_from_answers)
+from .guideline import (CORE_SECTIONS, ensure_core_sections,
+                       expand_requirements, parse_clauses,
+                       parse_clause_requirements, reconcile_requirements,
+                       relevant_coverage_questions, sections_from_answers)
 from .models import (CHECKLIST_SCHEMA, INTERVIEW_SCHEMA, InterviewPlan,
                      InterviewQuestion, TenderChecklist)
 
@@ -76,20 +76,23 @@ class Coach:
         data = self.backend.complete_json(self.system, prompt,
                                           INTERVIEW_SCHEMA, "interview_plan")
         plan = InterviewPlan.from_dict(data)
-        return self._ensure_coverage(plan)
+        return self._ensure_coverage(plan, item_description)
 
-    def _ensure_coverage(self, plan: InterviewPlan) -> InterviewPlan:
+    def _ensure_coverage(self, plan: InterviewPlan,
+                         item_description: str = "") -> InterviewPlan:
         """Add guideline-grounded applicability questions the model didn't ask.
 
         Reverse-prompting must surface enough about the purchase to decide
         which guideline sections apply, so every relevant requirement ends up
-        in the checklist. We merge in coverage questions for any major section
-        the model's questions don't already touch, capped at ``MAX_QUESTIONS``.
+        in the checklist. We merge in the coverage questions relevant to this
+        item for any major section the model's questions don't already touch,
+        capped at ``MAX_QUESTIONS``.
         """
         questions = list(plan.questions)
         asked = " ".join(q.question.lower() for q in questions)
         for i, (keywords, question) in enumerate(
-                coverage_questions(self.clauses), start=1):
+                relevant_coverage_questions(self.clauses, item_description),
+                start=1):
             if len(questions) >= self.MAX_QUESTIONS:
                 break
             if any(kw in asked for kw in keywords.split(",")):

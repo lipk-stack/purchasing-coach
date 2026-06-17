@@ -14,7 +14,10 @@ pass ``--model-path`` on the CLI.
 
 import json
 import os
+import shutil
+import sys
 from collections.abc import Iterator
+from importlib import resources as _resources
 from pathlib import Path
 
 from .base import BackendProtocol
@@ -27,6 +30,11 @@ DEFAULT_MODEL_FILE = "qwen2.5-1.5b-instruct-q4_k_m.gguf"
 
 # Where cached models are stored.
 _MODEL_CACHE = Path.home() / ".purchasing-coach" / "models"
+
+# Package that holds a GGUF model bundled *with* the application — this is
+# where ``scripts/build_portable.py --with-model`` drops the file so the model
+# ships inside the zipapp and runs with no download.
+_BUNDLED_PACKAGE = "coach.models"
 
 
 class EmbeddedBackend(BackendProtocol):
@@ -96,8 +104,11 @@ class EmbeddedBackend(BackendProtocol):
         Resolution order:
         1. Explicit ``model_path`` argument
         2. ``EMBEDDED_MODEL_PATH`` environment variable
-        3. Cached model in ``~/.purchasing-coach/models/``
-        4. Auto-download from HuggingFace Hub
+        3. A model deployed together with the application (bundled in the
+           zipapp, or a ``models/`` folder beside the executable —
+           see :meth:`_bundled_model`)
+        4. Cached model in ``~/.purchasing-coach/models/``
+        5. Auto-download from HuggingFace Hub
         """
         # 1. Explicit path
         if model_path:
@@ -116,14 +127,97 @@ class EmbeddedBackend(BackendProtocol):
                 f"EMBEDDED_MODEL_PATH points to a missing file: {p}"
             )
 
-        # 3. Cache directory — look for any .gguf file
+        # 3. Model shipped with the application (truly portable, no download).
+        bundled = EmbeddedBackend._bundled_model()
+        if bundled:
+            return bundled
+
+        # 4. Cache directory — look for any .gguf file
         _MODEL_CACHE.mkdir(parents=True, exist_ok=True)
         cached = list(_MODEL_CACHE.glob("*.gguf"))
         if cached:
             return cached[0]
 
-        # 4. Auto-download
+        # 5. Auto-download
         return EmbeddedBackend._download_model()
+
+    # ------------------------------------------------------------------
+    # Bundled / adjacent model discovery
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _adjacent_model_dirs() -> list[Path]:
+        """Directories to scan for a GGUF shipped alongside the application.
+
+        Covers the portable "ship the app + a ``models/`` folder" layout: a
+        ``models/`` directory (or a loose ``.gguf``) next to the running
+        ``.pyz``/executable, an ``EMBEDDED_MODEL_DIR`` override, and a
+        ``models/`` folder next to the installed package source.
+        """
+        dirs: list[Path] = []
+        try:
+            app = Path(sys.argv[0]).resolve().parent
+            dirs += [app / "models", app]
+        except (OSError, IndexError):
+            pass
+        env_dir = os.environ.get("EMBEDDED_MODEL_DIR")
+        if env_dir:
+            dirs.append(Path(env_dir))
+        try:
+            dirs.append(Path(__file__).resolve().parent.parent.parent / "models")
+        except OSError:
+            pass
+        return dirs
+
+    @staticmethod
+    def _adjacent_gguf() -> Path | None:
+        """First real ``.gguf`` file in an adjacent directory, if any."""
+        for d in EmbeddedBackend._adjacent_model_dirs():
+            try:
+                if d.is_dir():
+                    found = sorted(d.glob("*.gguf"))
+                    if found:
+                        return found[0]
+            except OSError:
+                continue
+        return None
+
+    @staticmethod
+    def _packaged_gguf_name() -> str | None:
+        """Name of a GGUF bundled in the ``coach.models`` package, if present."""
+        try:
+            root = _resources.files(_BUNDLED_PACKAGE)
+        except (ModuleNotFoundError, TypeError, FileNotFoundError):
+            return None
+        try:
+            for entry in root.iterdir():
+                if entry.name.endswith(".gguf"):
+                    return entry.name
+        except (OSError, FileNotFoundError):
+            return None
+        return None
+
+    @staticmethod
+    def _bundled_model() -> Path | None:
+        """Locate a model deployed with the application.
+
+        Prefers a real file in an adjacent ``models/`` folder. A model bundled
+        *inside* the zipapp can't be memory-mapped from the archive, so it is
+        extracted once into the cache and reused thereafter.
+        """
+        adjacent = EmbeddedBackend._adjacent_gguf()
+        if adjacent:
+            return adjacent
+
+        name = EmbeddedBackend._packaged_gguf_name()
+        if not name:
+            return None
+        _MODEL_CACHE.mkdir(parents=True, exist_ok=True)
+        dest = _MODEL_CACHE / name
+        if not dest.is_file():
+            resource = _resources.files(_BUNDLED_PACKAGE) / name
+            with _resources.as_file(resource) as real_path:
+                shutil.copy2(real_path, dest)
+        return dest
 
     @staticmethod
     def _download_model() -> Path:
@@ -274,7 +368,15 @@ class EmbeddedBackend(BackendProtocol):
 
     @classmethod
     def has_cached_model(cls) -> bool:
-        """Return True if a GGUF model file exists in the cache."""
-        if not _MODEL_CACHE.is_dir():
-            return False
-        return any(_MODEL_CACHE.glob("*.gguf"))
+        """Return True if a GGUF model is available without downloading.
+
+        Covers a model deployed with the application (bundled in the zipapp or
+        in a ``models/`` folder beside it) as well as the home cache, so
+        auto-detect can select the embedded backend when a model ships with the
+        app.
+        """
+        if cls._adjacent_gguf() is not None:
+            return True
+        if cls._packaged_gguf_name() is not None:
+            return True
+        return _MODEL_CACHE.is_dir() and any(_MODEL_CACHE.glob("*.gguf"))

@@ -162,16 +162,17 @@ class KeywordBackend(BackendProtocol):
         sections.  Falls back to generic procurement questions when the
         guideline has no numbered clauses (unstructured text).
         """
-        from ..guideline import coverage_questions
+        from ..guideline import relevant_coverage_questions
 
         # Extract item description from prompt (between <item> tags or the
-        # whole prompt when tags are absent)
+        # whole prompt when tags are absent) so the questions are tailored to
+        # what the buyer is purchasing.
         item_match = re.search(r"<item>(.*?)</item>", prompt, re.DOTALL)
-        _item_desc = item_match.group(1).strip() if item_match else prompt.strip()
+        item_desc = item_match.group(1).strip() if item_match else prompt.strip()
 
         questions: list[dict[str, str]] = []
         for i, (keywords, question) in enumerate(
-            coverage_questions(self._clauses), 1
+            relevant_coverage_questions(self._clauses, item_desc), 1
         ):
             questions.append({"key": f"cover_{i}", "question": question})
 

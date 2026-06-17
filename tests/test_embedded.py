@@ -373,6 +373,79 @@ def test_has_cached_model_false_no_dir(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# Bundled / adjacent model (deployed together with the application)
+# ---------------------------------------------------------------------------
+def test_adjacent_model_dir_resolves(tmp_path, monkeypatch):
+    """A model in EMBEDDED_MODEL_DIR is used before any download."""
+    fake = _install_fake_llama(monkeypatch)
+    fake.Llama.return_value = MagicMock()
+    monkeypatch.setattr(
+        "coach.backends.embedded._MODEL_CACHE", tmp_path / "cache"
+    )
+    ship = tmp_path / "ship"
+    ship.mkdir()
+    (ship / "shipped.gguf").write_bytes(b"GGUF")
+    monkeypatch.setenv("EMBEDDED_MODEL_DIR", str(ship))
+    # Download must never be called when a model ships with the app.
+    monkeypatch.setattr(
+        EmbeddedBackend, "_download_model",
+        MagicMock(side_effect=AssertionError("should not download")),
+    )
+
+    backend = EmbeddedBackend()
+    assert backend.model == "shipped"
+
+
+def test_has_cached_model_true_with_adjacent(tmp_path, monkeypatch):
+    """has_cached_model sees a model shipped alongside the app (cache empty)."""
+    monkeypatch.setattr(
+        "coach.backends.embedded._MODEL_CACHE", tmp_path / "empty_cache"
+    )
+    ship = tmp_path / "ship"
+    ship.mkdir()
+    (ship / "shipped.gguf").write_bytes(b"GGUF")
+    monkeypatch.setenv("EMBEDDED_MODEL_DIR", str(ship))
+    assert EmbeddedBackend.has_cached_model() is True
+
+
+def test_packaged_model_extracted_to_cache(tmp_path, monkeypatch):
+    """A model bundled inside the zipapp is extracted once into the cache."""
+    import contextlib
+
+    cache = tmp_path / "cache"
+    monkeypatch.setattr("coach.backends.embedded._MODEL_CACHE", cache)
+    monkeypatch.setattr(
+        EmbeddedBackend, "_adjacent_gguf", staticmethod(lambda: None)
+    )
+    monkeypatch.setattr(
+        EmbeddedBackend, "_packaged_gguf_name",
+        staticmethod(lambda: "packaged.gguf"),
+    )
+
+    src = tmp_path / "packaged.gguf"
+    src.write_bytes(b"GGUF-bundled")
+
+    class FakeRoot:
+        def __truediv__(self, name):
+            return src
+
+    @contextlib.contextmanager
+    def fake_as_file(resource):
+        yield Path(resource)
+
+    monkeypatch.setattr(
+        "coach.backends.embedded._resources.files", lambda pkg: FakeRoot()
+    )
+    monkeypatch.setattr(
+        "coach.backends.embedded._resources.as_file", fake_as_file
+    )
+
+    result = EmbeddedBackend._bundled_model()
+    assert result == cache / "packaged.gguf"
+    assert result.read_bytes() == b"GGUF-bundled"
+
+
+# ---------------------------------------------------------------------------
 # Custom model_name override
 # ---------------------------------------------------------------------------
 def test_custom_model_name(tmp_path, monkeypatch):

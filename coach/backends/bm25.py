@@ -238,18 +238,20 @@ class BM25Backend(BackendProtocol):
         """Generate interview questions from guideline coverage questions.
 
         Uses the same approach as the keyword backend:
-        :func:`coach.guideline.coverage_questions` for guideline-grounded
-        questions, with generic procurement fallbacks for unstructured text.
+        :func:`coach.guideline.relevant_coverage_questions` for
+        guideline-grounded questions tailored to the item, with generic
+        procurement fallbacks for unstructured text.
         """
-        from ..guideline import coverage_questions
+        from ..guideline import relevant_coverage_questions
 
         item_match = re.search(r"<item>(.*?)</item>", prompt, re.DOTALL)
-        _item_desc = item_match.group(1).strip() if item_match else prompt.strip()
+        item_desc = item_match.group(1).strip() if item_match else prompt.strip()
 
-        # Use coverage questions grounded in the guideline's sections
+        # Coverage questions grounded in the guideline's sections, tailored to
+        # the item being purchased.
         questions: list[dict[str, str]] = []
         for i, (keywords, question) in enumerate(
-            coverage_questions(self._clauses), 1
+            relevant_coverage_questions(self._clauses, item_desc), 1
         ):
             questions.append({"key": f"cover_{i}", "question": question})
 
