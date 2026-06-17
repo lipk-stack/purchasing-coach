@@ -9,6 +9,20 @@ to follow [Semantic Versioning](https://semver.org/).
 Production-quality hardening pass.
 
 ### Added
+- **WCAG 2.2 AA accessibility revamp of the web UI** (adopted internationally
+  as ISO/IEC 40500). Full keyboard operation: the sidebar navigation and saved
+  sessions are now real `<button>`s (not click-only `<div>`s), every control
+  has a visible `:focus-visible` ring, and drag-to-reorder in the checklist has
+  an arrow-key equivalent. Screen-reader semantics: a skip-to-content link,
+  `<main>`/`<nav>` landmarks, a single `<h1>`, `aria-current` on the active nav
+  item, `role="region"` on each view, labelled checklist search/filter
+  controls, a status live-region that announces view changes and reorders, and
+  text alternatives (`role="img"` + described numbers) for the canvas charts.
+  Stateful controls expose state (`aria-pressed` theme toggle, `aria-expanded`
+  sidebar toggle). All text now meets **≥4.5:1 contrast in both themes**
+  (darkened `--tx-2`, and light-theme `--green`, verified with the WCAG
+  formula), with `prefers-contrast` and `forced-colors` support added. The web
+  About box and `meta` endpoint now report the real package version.
 - **Atomic, per-obligation checklist rows** — a guideline requirement
   paragraph that bundles several distinct vendor obligations in separate
   sentences (e.g. clause 6.1 "Both server and client components must be

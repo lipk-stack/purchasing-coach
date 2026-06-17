@@ -64,6 +64,35 @@ def test_page_has_restart_interview_wiring(server):
     assert "'restart'" in page and "'/tender'" in page
 
 
+def test_page_meets_accessibility_contract(server):
+    """The served SPA carries the WCAG 2.2 AA landmarks/ARIA we rely on."""
+    base, _ = server
+    _, _, body = _get(base + "/")
+    page = body.decode()
+    # Document language + a single top-level heading.
+    assert '<html lang="en">' in page
+    assert page.count("<h1") == 1
+    # Bypass-blocks: a skip link targeting the main landmark.
+    assert 'class="skip-link" href="#main"' in page
+    assert '<main class="main" id="main"' in page
+    # Primary nav items are real buttons (keyboard operable), not click divs,
+    # and the active one is marked for assistive tech.
+    assert '<button type="button" class="nav-item active"' in page
+    assert 'aria-current="page"' in page
+    # No legacy click-only <div> nav items remain.
+    assert '<div class="nav-item' not in page
+    # Stateful controls expose their state.
+    assert 'aria-pressed=' in page and 'aria-expanded=' in page
+    # Form controls in the checklist toolbar are labelled.
+    assert 'for="clSearch"' in page and 'role="search"' in page
+    # Canvas charts have a text alternative for screen readers.
+    assert 'role="img" aria-labelledby="pieTitle"' in page
+    assert 'id="pieDesc"' in page and 'id="barDesc"' in page
+    # Keyboard alternative to drag-and-drop reordering (WCAG 2.1.1).
+    assert "function moveRow(" in page
+    assert "ArrowUp" in page and "ArrowDown" in page
+
+
 def test_chat_streams_reply(server):
     base, _ = server
     req = urllib.request.Request(

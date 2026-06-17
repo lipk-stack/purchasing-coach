@@ -20,6 +20,7 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from . import __version__
 from .excel import write_checklist
 from .llm import Coach
 from .models import (
@@ -116,7 +117,7 @@ class WebUI:
             "backend": self.backend.name,
             "model": getattr(self.backend, "model", "N/A"),
             "guideline": Path(self.guideline_path).name,
-            "version": "2.0.0",
+            "version": __version__,
             "requires_model": getattr(self.backend, "requires_model", True),
         }
 
@@ -204,7 +205,7 @@ class WebUI:
     def serve(self, port: int = 8765, open_browser: bool = True) -> None:
         server = self.make_server(port)
         url = f"http://127.0.0.1:{server.server_address[1]}/"
-        print(f"Purchasing Coach v2.0  {url}  (Ctrl+C to stop)")
+        print(f"Purchasing Coach v{__version__}  {url}  (Ctrl+C to stop)")
         print(f"  Backend:  {self.backend.name} ({getattr(self.backend, 'model', 'N/A')})")
         print(f"  Guideline: {Path(self.guideline_path).name}")
         if open_browser:
@@ -403,7 +404,7 @@ PAGE = r"""<!DOCTYPE html>
 /* ===== DESIGN TOKENS ===== */
 :root{
   --bg-0:#0b0e14;--bg-1:#111520;--bg-2:#181d2a;--bg-3:#1f2637;--bg-4:#272f42;
-  --tx-0:#e8ecf4;--tx-1:#b0b8c9;--tx-2:#7882a0;--tx-3:#4a5270;
+  --tx-0:#e8ecf4;--tx-1:#b0b8c9;--tx-2:#828ca8;--tx-3:#4a5270;
   --ac:#4f8ff7;--ac-2:#6ba3ff;--ac-bg:rgba(79,143,247,.12);
   --green:#34d399;--green-bg:rgba(52,211,153,.12);
   --amber:#fbbf24;--amber-bg:rgba(251,191,36,.12);
@@ -419,9 +420,9 @@ PAGE = r"""<!DOCTYPE html>
 }
 [data-theme="light"]{
   --bg-0:#f0f2f7;--bg-1:#f7f8fb;--bg-2:#ffffff;--bg-3:#f0f2f7;--bg-4:#e4e7ef;
-  --tx-0:#1a1f33;--tx-1:#4a5270;--tx-2:#7882a0;--tx-3:#b0b8c9;
+  --tx-0:#1a1f33;--tx-1:#4a5270;--tx-2:#646d8c;--tx-3:#b0b8c9;
   --ac:#2e6fd1;--ac-2:#4f8ff7;--ac-bg:rgba(46,111,209,.08);
-  --green:#059669;--green-bg:rgba(5,150,105,.08);
+  --green:#047857;--green-bg:rgba(5,150,105,.08);
   --amber:#d97706;--amber-bg:rgba(217,119,6,.08);
   --red:#dc2626;--red-bg:rgba(220,38,38,.08);
   --border:rgba(0,0,0,.06);--border-2:rgba(0,0,0,.1);
@@ -435,6 +436,16 @@ body{font:14px/1.6 var(--font);color:var(--tx-0);background:var(--bg-0);
 button{font:inherit;cursor:pointer;border:0;background:0;color:inherit;}
 input,textarea,select{font:inherit;color:inherit;background:0;border:0;outline:0;}
 a{color:var(--ac);text-decoration:none;}
+/* Visible keyboard focus for every interactive element (WCAG 2.4.7/2.4.11) */
+:focus-visible{outline:2px solid var(--ac);outline-offset:2px;}
+a:focus-visible,button:focus-visible,[tabindex]:focus-visible,input:focus-visible,
+textarea:focus-visible,select:focus-visible,[contenteditable=true]:focus-visible{
+  outline:2px solid var(--ac);outline-offset:2px;border-radius:var(--r-sm);}
+/* Skip-to-content link, revealed on keyboard focus (WCAG 2.4.1) */
+.skip-link{position:absolute;left:var(--sp-3);top:-100px;z-index:100;background:var(--ac);
+  color:#fff;padding:var(--sp-2) var(--sp-4);border-radius:var(--r-md);font-weight:600;
+  box-shadow:var(--shadow-lg);transition:top var(--tr-fast);}
+.skip-link:focus{top:var(--sp-3);}
 ::-webkit-scrollbar{width:6px;height:6px;}
 ::-webkit-scrollbar-track{background:0 0;}
 ::-webkit-scrollbar-thumb{background:var(--border-2);border-radius:3px;}
@@ -471,19 +482,23 @@ a{color:var(--ac);text-decoration:none;}
 .sidebar-header{padding:var(--sp-4);display:flex;align-items:center;gap:var(--sp-2);
   font-weight:700;font-size:13px;color:var(--tx-2);text-transform:uppercase;letter-spacing:.06em;}
 .nav-item{display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-2) var(--sp-4);
-  margin:2px var(--sp-2);border-radius:var(--r-sm);color:var(--tx-1);
-  font-size:13px;font-weight:500;transition:all var(--tr-fast);cursor:pointer;}
+  margin:2px var(--sp-2);width:calc(100% - var(--sp-4));text-align:left;border-radius:var(--r-sm);
+  color:var(--tx-1);font-size:13px;font-weight:500;transition:all var(--tr-fast);cursor:pointer;}
 .nav-item:hover{background:var(--bg-3);color:var(--tx-0);}
-.nav-item.active{background:var(--ac-bg);color:var(--ac);font-weight:600;}
+.nav-item.active,.nav-item[aria-current=page]{background:var(--ac-bg);color:var(--ac);font-weight:600;}
 .nav-item .icon{width:20px;text-align:center;font-size:15px;flex-shrink:0;}
 .session-list{flex:1;overflow-y:auto;padding:var(--sp-2) 0;border-top:1px solid var(--border);margin-top:var(--sp-2);}
 .session-item{display:flex;align-items:center;gap:var(--sp-2);padding:var(--sp-2) var(--sp-4);
-  margin:1px var(--sp-2);border-radius:var(--r-sm);color:var(--tx-2);
-  font-size:12px;cursor:pointer;transition:background var(--tr-fast);}
+  margin:1px var(--sp-2);width:calc(100% - var(--sp-4));text-align:left;border-radius:var(--r-sm);
+  color:var(--tx-2);font-size:12px;cursor:pointer;transition:background var(--tr-fast);}
 .session-item:hover{background:var(--bg-3);color:var(--tx-0);}
+.session-open{flex:1;display:flex;align-items:center;gap:var(--sp-2);color:inherit;
+  font-size:12px;text-align:left;overflow:hidden;padding:0;border-radius:var(--r-sm);min-width:0;}
 .session-item .title{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.session-item .del{opacity:0;font-size:14px;color:var(--red);transition:opacity var(--tr-fast);}
-.session-item:hover .del{opacity:1;}
+.session-item .count{font-size:10px;color:var(--tx-2);flex-shrink:0;}
+.session-item .del{opacity:0;font-size:14px;color:var(--red);transition:opacity var(--tr-fast);
+  padding:0 var(--sp-1);border-radius:var(--r-sm);}
+.session-item:hover .del,.session-item:focus-within .del,.session-item .del:focus-visible{opacity:1;}
 /* ===== CONTENT VIEWS ===== */
 .view{display:none;flex:1;overflow-y:auto;padding:var(--sp-5);}
 .view.active{display:flex;flex-direction:column;}
@@ -563,7 +578,9 @@ a.dl:hover{background:var(--ac-2);}
 .btn-ghost{background:var(--bg-2);color:var(--tx-1);border-color:var(--border);}
 .btn-ghost:hover{border-color:var(--ac);color:var(--ac);}
 .btn:disabled{opacity:.4;cursor:default;}
-.chat-hint{max-width:820px;margin:var(--sp-1) auto 0;font-size:11px;color:var(--tx-3);text-align:center;}
+.chat-hint{max-width:820px;margin:var(--sp-1) auto 0;font-size:11px;color:var(--tx-2);text-align:center;}
+.chat-hint kbd{font:11px/1 var(--mono);background:var(--bg-3);border:1px solid var(--border-2);
+  border-radius:4px;padding:1px 5px;color:var(--tx-1);}
 /* Interview progress */
 .interview-progress{max-width:820px;margin:0 auto var(--sp-3);padding:var(--sp-3) 0;display:none;}
 .interview-progress.active{display:block;}
@@ -573,7 +590,7 @@ a.dl:hover{background:var(--ac-2);}
   border:2px solid var(--border-2);transition:all var(--tr-fast);}
 .progress-step.done .dot{background:var(--green);border-color:var(--green);}
 .progress-step.current .dot{background:var(--ac);border-color:var(--ac);animation:pulse 1.5s ease-in-out infinite;}
-.progress-step .num{font-size:9px;color:var(--tx-3);}
+.progress-step .num{font-size:9px;color:var(--tx-2);}
 .progress-line{flex:1;height:2px;background:var(--border);min-width:8px;}
 .progress-line.done{background:var(--green);}
 @keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(79,143,247,.4);}50%{box-shadow:0 0 0 6px rgba(79,143,247,0);}}
@@ -596,7 +613,9 @@ a.dl:hover{background:var(--ac-2);}
 .cl-table .badge{display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600;}
 .cl-table .badge.m{background:var(--red-bg);color:var(--red);}
 .cl-table .badge.o{background:var(--green-bg);color:var(--green);}
-.cl-table .drag-handle{cursor:grab;color:var(--tx-3);user-select:none;}
+.cl-table .drag-handle{cursor:grab;color:var(--tx-2);user-select:none;font-size:14px;
+  padding:2px 6px;border-radius:var(--r-sm);line-height:1;}
+.cl-table .drag-handle:hover{background:var(--bg-4);color:var(--tx-0);}
 .cl-table .drag-handle:active{cursor:grabbing;}
 .cl-table [contenteditable=true]{outline:1px solid var(--ac);border-radius:3px;padding:1px 3px;background:var(--ac-bg);}
 /* ===== SETTINGS ===== */
@@ -623,48 +642,66 @@ a.dl:hover{background:var(--ac-2);}
 @media(prefers-reduced-motion:reduce){
   *{scroll-behavior:auto!important;animation:none!important;transition:none!important;}
 }
+/* Honour OS high-contrast requests (WCAG 1.4.6/1.4.11) */
+@media(prefers-contrast:more){
+  :root{--border:rgba(255,255,255,.3);--border-2:rgba(255,255,255,.45);
+    --tx-1:#d7dceb;--tx-2:#aeb6cc;}
+  [data-theme="light"]{--border:rgba(0,0,0,.3);--border-2:rgba(0,0,0,.45);
+    --tx-1:#2a3050;--tx-2:#3f476a;}
+  .msg,.metric-card,.chart-card,.setting-group{border-width:1px;}
+}
+/* Windows High Contrast / forced-colors: keep focus + active state visible */
+@media(forced-colors:active){
+  :focus-visible{outline:2px solid Highlight;}
+  .nav-item[aria-current=page],.nav-item.active{outline:1px solid Highlight;}
+  .pill,.badge{border:1px solid currentColor;}
+}
 </style>
 </head>
 <body>
+<a class="skip-link" href="#main">Skip to main content</a>
+<h1 class="sr-only">Purchasing Coach — IT procurement assistant</h1>
 <div class="app">
 <!-- SIDEBAR -->
-<aside class="sidebar" id="sidebar">
+<aside class="sidebar" id="sidebar" aria-label="Sidebar">
   <div class="sidebar-header">
-    <span class="icon" style="font-size:16px">&#9638;</span>
+    <span class="icon" style="font-size:16px" aria-hidden="true">&#9638;</span>
     <span>Purchasing Coach</span>
   </div>
-  <nav>
-    <div class="nav-item active" data-view="dashboard" onclick="switchView('dashboard')">
-      <span class="icon">&#9636;</span><span class="nav-label">Dashboard</span>
-    </div>
-    <div class="nav-item" data-view="chat" onclick="switchView('chat')">
-      <span class="icon">&#128172;</span><span class="nav-label">Chat</span>
-    </div>
-    <div class="nav-item" data-view="checklist" onclick="switchView('checklist')">
-      <span class="icon">&#9745;</span><span class="nav-label">Checklist</span>
-    </div>
-    <div class="nav-item" data-view="settings" onclick="switchView('settings')">
-      <span class="icon">&#9881;</span><span class="nav-label">Settings</span>
-    </div>
+  <nav aria-label="Primary">
+    <button type="button" class="nav-item active" data-view="dashboard" aria-current="page" onclick="switchView('dashboard')">
+      <span class="icon" aria-hidden="true">&#9636;</span><span class="nav-label">Dashboard</span>
+    </button>
+    <button type="button" class="nav-item" data-view="chat" onclick="switchView('chat')">
+      <span class="icon" aria-hidden="true">&#128172;</span><span class="nav-label">Chat</span>
+    </button>
+    <button type="button" class="nav-item" data-view="checklist" onclick="switchView('checklist')">
+      <span class="icon" aria-hidden="true">&#9745;</span><span class="nav-label">Checklist</span>
+    </button>
+    <button type="button" class="nav-item" data-view="settings" onclick="switchView('settings')">
+      <span class="icon" aria-hidden="true">&#9881;</span><span class="nav-label">Settings</span>
+    </button>
   </nav>
-  <div class="session-list" id="sessionList"></div>
+  <nav class="session-list" id="sessionList" aria-label="Saved sessions"></nav>
 </aside>
 <!-- MAIN -->
-<div class="main">
+<main class="main" id="main" tabindex="-1">
   <!-- TOPBAR -->
   <header class="topbar">
-    <button class="menu-btn" onclick="toggleSidebar()" aria-label="Toggle sidebar">&#9776;</button>
+    <button type="button" class="menu-btn" onclick="toggleSidebar()" id="menuBtn"
+            aria-label="Collapse sidebar" aria-expanded="true" aria-controls="sidebar">&#9776;</button>
     <div class="brand">
-      <span class="logo">PC</span>
+      <span class="logo" aria-hidden="true">PC</span>
       <span>Purchasing Coach</span>
     </div>
-    <span class="pill ok" id="backendPill"><span class="dot"></span><span id="backendLabel">connecting</span></span>
-    <span class="pill info" id="guidelinePill"><span class="dot"></span><span id="guidelineLabel">...</span></span>
+    <span class="pill ok" id="backendPill" title="AI backend status"><span class="dot" aria-hidden="true"></span><span id="backendLabel">connecting</span></span>
+    <span class="pill info" id="guidelinePill" title="Loaded guideline"><span class="dot" aria-hidden="true"></span><span id="guidelineLabel">...</span></span>
     <span class="spacer"></span>
-    <button class="menu-btn" onclick="toggleTheme()" id="themeBtn" aria-label="Toggle theme">&#9790;</button>
+    <button type="button" class="menu-btn" onclick="toggleTheme()" id="themeBtn"
+            aria-label="Switch to light theme" aria-pressed="false">&#9790;</button>
   </header>
   <!-- DASHBOARD -->
-  <div class="view active" id="view-dashboard">
+  <div class="view active" id="view-dashboard" role="region" aria-label="Dashboard">
     <h2 class="view-title">Dashboard</h2>
     <div class="metrics" id="metricsGrid">
       <div class="metric-card"><span class="label">Total Requirements</span><span class="value" id="mTotal">0</span><span class="sub">across all sections</span></div>
@@ -673,8 +710,8 @@ a.dl:hover{background:var(--ac-2);}
       <div class="metric-card"><span class="label">Coverage</span><span class="value" id="mCov">0%</span><span class="sub">guideline sections</span></div>
     </div>
     <div class="charts">
-      <div class="chart-card"><h3>Mandatory vs Optional</h3><canvas id="pieChart" height="220"></canvas></div>
-      <div class="chart-card"><h3>Requirements by Section</h3><canvas id="barChart" height="220"></canvas></div>
+      <div class="chart-card"><h3 id="pieTitle">Mandatory vs Optional</h3><canvas id="pieChart" height="220" role="img" aria-labelledby="pieTitle" aria-describedby="pieDesc"></canvas><p id="pieDesc" class="sr-only"></p></div>
+      <div class="chart-card"><h3 id="barTitle">Requirements by Section</h3><canvas id="barChart" height="220" role="img" aria-labelledby="barTitle" aria-describedby="barDesc"></canvas><p id="barDesc" class="sr-only"></p></div>
     </div>
     <div class="empty-state" id="dashEmpty" style="display:none">
       <div class="icon">&#128203;</div>
@@ -682,41 +719,45 @@ a.dl:hover{background:var(--ac-2);}
     </div>
   </div>
   <!-- CHAT -->
-  <div class="view chat-view" id="view-chat">
-    <div class="chat-log" id="chatLog" role="log" aria-live="polite">
+  <div class="view chat-view" id="view-chat" role="region" aria-label="Chat">
+    <div class="chat-log" id="chatLog" role="log" aria-live="polite" aria-label="Conversation" tabindex="0">
       <div class="interview-progress" id="interviewProgress"></div>
       <div class="chat-thread" id="chatThread"></div>
     </div>
     <div class="chat-footer">
       <div class="chat-bar">
-        <textarea id="chatBox" rows="1" autofocus placeholder="Ask about the guideline..."
-                  aria-label="Message"></textarea>
+        <label for="chatBox" class="sr-only">Ask about the guideline or type a command</label>
+        <textarea id="chatBox" rows="1" autofocus placeholder="Ask about the guideline..."></textarea>
         <div class="btns">
-          <button class="btn btn-primary" id="sendBtn" onclick="handleSend()">Send</button>
-          <button class="btn btn-ghost" id="tenderBtn" onclick="startTender()">Tender Checklist</button>
+          <button type="button" class="btn btn-primary" id="sendBtn" onclick="handleSend()">Send</button>
+          <button type="button" class="btn btn-ghost" id="tenderBtn" onclick="startTender()">Tender Checklist</button>
         </div>
       </div>
-      <div class="chat-hint">Enter to send &middot; Shift+Enter new line &middot; Esc stops reply &middot; /tender starts interview</div>
+      <div class="chat-hint"><kbd>Enter</kbd> to send &middot; <kbd>Shift</kbd>+<kbd>Enter</kbd> new line &middot; <kbd>Esc</kbd> stops reply &middot; <kbd>/tender</kbd> starts interview</div>
     </div>
   </div>
   <!-- CHECKLIST -->
-  <div class="view checklist-view" id="view-checklist">
-    <div class="cl-toolbar">
+  <div class="view checklist-view" id="view-checklist" role="region" aria-label="Checklist">
+    <div class="cl-toolbar" role="search">
+      <label for="clSearch" class="sr-only">Search requirements</label>
       <input type="text" id="clSearch" placeholder="Search requirements..." oninput="filterChecklist()">
+      <label for="clSection" class="sr-only">Filter by section</label>
       <select id="clSection" onchange="filterChecklist()"><option value="">All Sections</option></select>
+      <label for="clMO" class="sr-only">Filter by mandatory or optional</label>
       <select id="clMO" onchange="filterChecklist()">
         <option value="">M &amp; O</option><option value="M">Mandatory</option><option value="O">Optional</option>
       </select>
       <span style="flex:1"></span>
-      <button class="btn btn-ghost" onclick="exportCSV()">&#8681; CSV</button>
-      <button class="btn btn-ghost" onclick="exportJSON()">&#8681; JSON</button>
-      <span id="clCount" style="font-size:12px;color:var(--tx-2)"></span>
+      <button type="button" class="btn btn-ghost" onclick="exportCSV()"><span aria-hidden="true">&#8681;</span> CSV</button>
+      <button type="button" class="btn btn-ghost" onclick="exportJSON()"><span aria-hidden="true">&#8681;</span> JSON</button>
+      <span id="clCount" role="status" aria-live="polite" style="font-size:12px;color:var(--tx-2)"></span>
     </div>
     <div class="cl-table-wrap">
       <table class="cl-table" id="clTable">
+        <caption class="sr-only">Editable tender requirements. Use the reorder button in each row, then arrow keys, to change order.</caption>
         <thead><tr>
-          <th style="width:30px"></th><th>Ref</th><th>Section</th>
-          <th>Requirement</th><th>M/O</th>
+          <th style="width:36px"><span class="sr-only">Reorder</span></th><th>Ref</th><th>Section</th>
+          <th>Requirement</th><th scope="col">M/O</th>
         </tr></thead>
         <tbody id="clBody"></tbody>
       </table>
@@ -727,7 +768,7 @@ a.dl:hover{background:var(--ac-2);}
     </div>
   </div>
   <!-- SETTINGS -->
-  <div class="view" id="view-settings">
+  <div class="view" id="view-settings" role="region" aria-label="Settings">
     <h2 class="view-title">Settings</h2>
     <div class="settings-grid">
       <div class="setting-group">
@@ -759,7 +800,7 @@ a.dl:hover{background:var(--ac-2);}
       <div class="setting-group">
         <h3>About</h3>
         <div style="font-size:13px;color:var(--tx-1);line-height:1.8">
-          <p>Purchasing Coach v2.0 &mdash; An AI-powered procurement assistant that works with
+          <p>Purchasing Coach <span id="aboutVersion">v2.1</span> &mdash; An AI-powered procurement assistant that works with
           LLM backends (local or cloud) and built-in retrieval backends (keyword, BM25, template)
           for zero-dependency operation.</p>
           <p style="margin-top:8px">Supports any OpenAI-compatible API: OpenAI, Groq, Together AI,
@@ -768,7 +809,7 @@ a.dl:hover{background:var(--ac-2);}
       </div>
     </div>
   </div>
-</div>
+</main>
 </div>
 <div id="sr" class="sr-only" role="status" aria-live="assertive"></div>
 
@@ -782,15 +823,22 @@ const S={
 };
 
 /* ===== THEME ===== */
+function applyThemeBtn(){
+  const b=document.getElementById('themeBtn');
+  b.textContent=S.theme==='dark'?'\u2600':'\u263E';
+  b.setAttribute('aria-pressed',String(S.theme==='light'));
+  b.setAttribute('aria-label',S.theme==='dark'?'Switch to light theme':'Switch to dark theme');
+}
 function initTheme(){
   S.theme=document.documentElement.dataset.theme||'dark';
-  document.getElementById('themeBtn').textContent=S.theme==='dark'?'\u2600':'\u263E';
+  applyThemeBtn();
 }
 function toggleTheme(){
   S.theme=S.theme==='dark'?'light':'dark';
   document.documentElement.dataset.theme=S.theme;
   try{localStorage.setItem('pc-theme',S.theme);}catch(e){}
-  document.getElementById('themeBtn').textContent=S.theme==='dark'?'\u2600':'\u263E';
+  applyThemeBtn();
+  announce(S.theme==='dark'?'Dark theme':'Light theme');
   redrawCharts();
 }
 
@@ -798,20 +846,29 @@ function toggleTheme(){
 function toggleSidebar(){
   S.sidebarOpen=!S.sidebarOpen;
   document.getElementById('sidebar').classList.toggle('collapsed',!S.sidebarOpen);
+  const b=document.getElementById('menuBtn');
+  b.setAttribute('aria-expanded',String(S.sidebarOpen));
+  b.setAttribute('aria-label',S.sidebarOpen?'Collapse sidebar':'Expand sidebar');
 }
 
 /* ===== NAVIGATION ===== */
+const VIEW_TITLES={dashboard:'Dashboard',chat:'Chat',checklist:'Checklist',settings:'Settings'};
 function switchView(name){
   S.view=name;
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
   const el=document.getElementById('view-'+name);
   if(el)el.classList.add('active');
   document.querySelectorAll('.nav-item').forEach(n=>{
-    n.classList.toggle('active',n.dataset.view===name);
+    const on=n.dataset.view===name;
+    n.classList.toggle('active',on);
+    if(on)n.setAttribute('aria-current','page');else n.removeAttribute('aria-current');
   });
+  document.title=(VIEW_TITLES[name]||'Purchasing Coach')+' · Purchasing Coach';
+  announce(VIEW_TITLES[name]+' view');
   if(name==='dashboard')refreshAnalytics();
   if(name==='chat')document.getElementById('chatBox').focus();
 }
+function announce(msg){const sr=document.getElementById('sr');if(sr)sr.textContent=msg;}
 
 /* ===== META ===== */
 async function loadMeta(){
@@ -825,6 +882,7 @@ async function loadMeta(){
     document.getElementById('setModel').textContent=m.model;
     document.getElementById('setReqModel').textContent=m.requires_model?'Yes':'No';
     document.getElementById('setGuideline').textContent=m.guideline;
+    if(m.version){const av=document.getElementById('aboutVersion');if(av)av.textContent='v'+m.version;}
   }catch(e){
     document.getElementById('backendPill').className='pill err';
     document.getElementById('backendLabel').textContent='offline';
@@ -850,10 +908,14 @@ async function loadSessions(){
     const r=await fetch('/api/sessions');S.sessions=await r.json();
     const el=document.getElementById('sessionList');
     el.innerHTML=S.sessions.map(s=>
-      `<div class="session-item" onclick="loadSession('${s.id}')">
-        <span class="title">${esc(s.title)}</span>
-        <span style="font-size:10px;color:var(--tx-3)">${s.message_count||0}</span>
-        <button class="del" onclick="event.stopPropagation();delSession('${s.id}')" title="Delete">&times;</button>
+      `<div class="session-item">
+        <button type="button" class="session-open" onclick="loadSession('${s.id}')"
+                title="Open: ${esc(s.title)}">
+          <span class="title">${esc(s.title)}</span>
+          <span class="count" aria-label="${s.message_count||0} messages">${s.message_count||0}</span>
+        </button>
+        <button type="button" class="del" onclick="delSession('${s.id}')"
+                aria-label="Delete session: ${esc(s.title)}" title="Delete">&times;</button>
       </div>`).join('');
   }catch(e){}
 }
@@ -1087,10 +1149,13 @@ function filterChecklist(){
   const body=document.getElementById('clBody');
   body.innerHTML=filtered.map((r,i)=>
     `<tr draggable="true" data-idx="${i}">
-      <td class="drag-handle" title="Drag to reorder">&#9776;</td>
+      <td><button type="button" class="drag-handle" data-idx="${i}"
+          aria-label="Reorder ${esc(r.ref)}. Press Arrow Up or Arrow Down to move."
+          title="Drag, or focus and use arrow keys, to reorder">&#9776;</button></td>
       <td style="white-space:nowrap;font-weight:600">${esc(r.ref)}</td>
       <td>${esc(r.section)}</td>
-      <td contenteditable="true" data-field="requirement" data-idx="${i}"
+      <td contenteditable="true" role="textbox" aria-label="Requirement text for ${esc(r.ref)}"
+          data-field="requirement" data-idx="${i}"
           onblur="updateReq(${i},this.textContent)">${esc(r.requirement)}</td>
       <td><span class="badge ${r.mandatory==='M'?'m':'o'}">${r.mandatory==='M'?'Mandatory':'Optional'}</span></td>
     </tr>`).join('');
@@ -1099,6 +1164,13 @@ function filterChecklist(){
 }
 function updateReq(idx,text){
   if(clData[idx])clData[idx].requirement=text.trim();
+}
+function moveRow(from,to){
+  if(to<0||to>=clData.length||from===to)return;
+  const [item]=clData.splice(from,1);clData.splice(to,0,item);filterChecklist();
+  const b=document.querySelector('#clBody tr[data-idx="'+to+'"] .drag-handle');
+  if(b)b.focus();
+  announce(item.ref+' moved to position '+(to+1)+' of '+clData.length);
 }
 function setupDragDrop(){
   const body=document.getElementById('clBody');
@@ -1109,8 +1181,15 @@ function setupDragDrop(){
     row.addEventListener('dragover',e=>{e.preventDefault();});
     row.addEventListener('drop',e=>{
       e.preventDefault();if(!dragRow||dragRow===row)return;
-      const from=parseInt(dragRow.dataset.idx);const to=parseInt(row.dataset.idx);
-      const [item]=clData.splice(from,1);clData.splice(to,0,item);filterChecklist();
+      moveRow(parseInt(dragRow.dataset.idx),parseInt(row.dataset.idx));
+    });
+  });
+  // Keyboard alternative to drag-and-drop (WCAG 2.1.1).
+  body.querySelectorAll('.drag-handle').forEach(h=>{
+    h.addEventListener('keydown',e=>{
+      const idx=parseInt(h.dataset.idx);
+      if(e.key==='ArrowUp'){e.preventDefault();moveRow(idx,idx-1);}
+      else if(e.key==='ArrowDown'){e.preventDefault();moveRow(idx,idx+1);}
     });
   });
 }
@@ -1149,6 +1228,9 @@ function drawPie(mand,opt){
   const total=mand+opt;if(!total)return;
   const cx=w/2,cy=h/2,r=Math.min(w,h)/2-20;
   const data=[{v:mand,c:'#f87171',l:'Mandatory'},{v:opt,c:'#34d399',l:'Optional'}];
+  const pd=document.getElementById('pieDesc');
+  if(pd)pd.textContent=`${mand} mandatory and ${opt} optional requirements `
+    +`(${Math.round(mand/total*100)}% mandatory).`;
   let start=-Math.PI/2;
   data.forEach(d=>{
     const angle=(d.v/total)*Math.PI*2;
@@ -1173,6 +1255,9 @@ function drawBars(bySection){
   const c=document.getElementById('barChart');if(!c)return;
   const ctx=c.getContext('2d');const w=c.width=c.offsetWidth;
   const entries=Object.entries(bySection).sort((a,b)=>b[1]-a[1]).slice(0,10);
+  const bd=document.getElementById('barDesc');
+  if(bd)bd.textContent='Requirements by section — '
+    +entries.map(([n,v])=>`${n}: ${v}`).join('; ')+'.';
   const maxVal=Math.max(...entries.map(e=>e[1]),1);
   const barH=22,gap=6,pad=140;
   const h=entries.length*(barH+gap)+20;

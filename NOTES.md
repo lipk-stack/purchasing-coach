@@ -2,6 +2,61 @@
 
 Reference this file at the start of each routine run.
 
+## Iteration 21 — 2026-06-17 (UX revamp to WCAG 2.2 AA / international standard)
+
+User: "research design skills … revamp/enhance the UX … to perfect shippable
+international standards." The web UI (`coach/webui.py`, single self-contained
+HTML page) was already visually strong — design tokens, dark/light themes,
+responsive, reduced-motion. The standard that "international" maps to for UX is
+**WCAG 2.2 Level AA = ISO/IEC 40500**, so this iteration is a full
+accessibility-conformance pass (the highest-value, verifiable UX upgrade), plus
+contrast fixes found by measurement.
+
+- **Real defects found & fixed:**
+  - **Keyboard inoperable nav.** Sidebar nav items and saved-session rows were
+    `<div onclick>` — not focusable, no role, can't activate with Enter/Space
+    (WCAG 2.1.1/4.1.2). Converted to real `<button>`s; session row split into a
+    focusable open-button + labelled delete-button (no nested buttons).
+  - **Contrast failures (measured with the WCAG luminance formula):**
+    light-theme `--tx-2` was 3.6–3.8:1 and `--green`-as-text 3.6–3.8:1 (both
+    used for ≤12px text → fail AA). Dark `--tx-2` on cards was 4.41:1.
+    Retuned: dark `--tx-2 #7882a0→#828ca8` (≥5.0), light `--tx-2
+    #7882a0→#646d8c` (≥4.8), light `--green #059669→#047857` (≥5.1). `--tx-3`
+    (fails everywhere) is now only on the non-text scrollbar; the 9px progress
+    numbers moved to `--tx-2`. **All text ≥4.5:1 in both themes** (re-verified).
+    Amber is only ever a background with dark text, so its low text-ratio is
+    moot.
+  - **No keyboard path for drag-to-reorder** (WCAG 2.1.1). Added `moveRow()` +
+    Arrow Up/Down on each row's reorder handle (now a `<button>`), with an
+    `aria-live` announcement of the new position.
+- **Added (semantics & affordances):** skip-to-content link → `#main`;
+  `<div class="main">`→`<main id="main" tabindex="-1">`; one `sr-only` `<h1>`;
+  `aria-current="page"` on the active nav (managed in `switchView`, which also
+  sets `document.title` and announces the view); `role="region"`+`aria-label`
+  per view; `role="search"` + `<label class="sr-only">` for the checklist
+  search/section/M-O controls; `role="img"`+`aria-labelledby`/`aria-describedby`
+  on both canvas charts with the numbers written into `sr-only` descriptions in
+  `drawPie`/`drawBars`; `aria-pressed` (theme) and `aria-expanded` (sidebar)
+  kept in sync; visible `:focus-visible` outlines for everything; `<kbd>`-styled
+  keyboard hints; `@media(prefers-contrast:more)` and `@media(forced-colors:
+  active)` blocks. Decorative glyphs marked `aria-hidden`.
+- **Version wiring:** `meta()` now returns the real `coach.__version__` (was
+  hardcoded "2.0.0"); the serve banner and the About box (`#aboutVersion`, set
+  from `/api/meta`) follow it.
+- **Verified:** HTML tag-balance check (no unclosed/mismatched), live server
+  smoke (GET / → 200, `/api/meta` version 2.1.0, all landmarks present), and a
+  new locking test `test_page_meets_accessibility_contract` (lang, single h1,
+  skip link, `<main>`, button nav + `aria-current`, no legacy `<div
+  class="nav-item">`, `aria-pressed`/`aria-expanded`, labelled search,
+  chart text-alts, `moveRow`/Arrow keys). **185 tests pass, ruff clean.**
+- **Follow-up (next UX pass):** true i18n/localization (string externalisation,
+  RTL) is not done — the UI is English-only; that's the other reading of
+  "international" and is the natural next step if the user wants multi-language.
+  Also consider: a contenteditable undo, focus-trap for the mobile sidebar
+  overlay, and an automated axe-core/Pa11y check in CI (needs a headless
+  browser — not available in this sandbox).
+- **Drive checked:** guideline + template unchanged (2026-06-10). **main synced.**
+
 ## Iteration 20 — 2026-06-17 (granular: atomic per-obligation checklist rows)
 
 Resumed after the user merged their own work to main (`568e632` "Add portable

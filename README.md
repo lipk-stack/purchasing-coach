@@ -146,10 +146,29 @@ The page is one self-contained HTML document (inline CSS/JS, system fonts,
 no CDN or build step, so it works offline on locked-down machines) with:
 light/dark themes (follows the OS setting, with a toggle remembered across
 visits), a **Stop** button that cancels a streaming reply (Send turns into
-Stop; Esc also stops), copy-to-clipboard on replies, an auto-growing input,
-and accessibility built in (ARIA live region for streamed text, labelled
-controls, 4.5:1 contrast, 44px touch targets, keyboard and reduced-motion
-support).
+Stop; Esc also stops), copy-to-clipboard on replies, and an auto-growing input.
+
+### Accessibility
+
+The web UI targets **WCAG 2.2 Level AA** (adopted internationally as
+ISO/IEC 40500). It ships with:
+
+- **Full keyboard operation** — every control is a real, focusable element
+  with a visible focus ring; the sidebar nav and saved sessions are buttons,
+  and drag-to-reorder in the checklist has an arrow-key equivalent
+  (focus a row's reorder handle, then <kbd>↑</kbd>/<kbd>↓</kbd>).
+- **Screen-reader semantics** — a skip-to-content link, `<main>`/`<nav>`
+  landmarks, one `<h1>`, `aria-current` on the active nav item, labelled form
+  controls, an `aria-live` log for streamed replies, a status region that
+  announces view changes and reorders, and text alternatives for the canvas
+  charts (the underlying numbers are read out).
+- **Stateful controls** expose their state (`aria-pressed` on the theme
+  toggle, `aria-expanded` on the sidebar toggle).
+- **Colour contrast ≥ 4.5:1** for all text in both light and dark themes
+  (verified against the WCAG formula), plus `prefers-contrast` and
+  Windows-forced-colors support.
+- **44px touch targets**, `prefers-reduced-motion`, and a responsive layout
+  down to mobile widths.
 
 The backend is auto-detected (LM Studio → Ollama → Claude API if an
 `ANTHROPIC_API_KEY` is set). Pin it explicitly with `--backend lmstudio`,
