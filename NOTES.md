@@ -68,6 +68,19 @@ gaps, both closed deterministically (no live LLM needed).
   review stays open. New follow-up 12 added for the embedded variant.
 - **main synced** after the green run (verify `git fetch` first per iter 15).
 
+**Docs/UX follow-on (same iteration, user request):** expanded the README with a
+full **Models & backends** reference — a table of all eight `--backend` options
+(auto/lmstudio/ollama/claude/embedded/keyword/bm25/template) with model,
+dependency, network and use-case columns; OpenAI-compatible provider presets; a
+"choosing a model" guide; the embedded deploy-with-app resolution order; and
+full CLI-options + environment-variable tables. Added a cross-platform **run
+script** for easy startup: new `run.sh` (Linux/macOS) and a rewritten `run.bat`
+(Windows) — both default to the browser UI with the bundled samples, forward any
+extra flags to the app, honour `GUIDELINE`/`TEMPLATE` env vars, and fall back to
+`python -m coach` if the `.pyz` is absent. Fixed the stale `coach/backends.py`
+reference (now the `coach/backends/` package). No code change — 122 tests still
+green; `.pyz` unchanged.
+
 ## Iteration 15 — 2026-06-16
 
 Polished the Review & Approval sheet (follow-up 11) so the reviewer's go/no-go

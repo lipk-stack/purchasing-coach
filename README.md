@@ -82,6 +82,39 @@ folder. `samples/TENDER_TEMPLATE.xlsx` is the genuine Drive template
 rebuilt). The sample guideline docx is a reconstruction with the same text —
 regenerate it with `python scripts/make_samples.py`.
 
+## Quick start (run scripts)
+
+The fastest way to launch — these start the browser chat UI with the bundled
+sample guideline and template, after checking that Python is installed:
+
+- **Linux / macOS:** `./run.sh`
+- **Windows:** double-click `run.bat` (or run it from a terminal)
+
+Any flags you add are forwarded to the app, so the run script doubles as a
+shortcut for every option below:
+
+```bash
+./run.sh                       # browser UI, bundled samples (default)
+./run.sh --backend embedded    # fully offline, in-process model
+./run.sh --backend ollama -m llama3.1:8b
+./run.sh                       # (Windows: run.bat)
+```
+
+Point it at your own documents with environment variables (no flags needed):
+
+```bash
+GUIDELINE=MyGuideline.docx TEMPLATE=MyTemplate.xlsx ./run.sh
+```
+
+```bat
+set GUIDELINE=MyGuideline.docx
+set TEMPLATE=MyTemplate.xlsx
+run.bat
+```
+
+The scripts prefer the prebuilt `dist/purchasing-coach.pyz`; if it's missing
+they fall back to running from source (`python -m coach`).
+
 ## Portable use (no install rights needed)
 
 1. Copy `dist/purchasing-coach.pyz`, your guideline document and your tender
@@ -127,6 +160,97 @@ server with `--base-url http://host:port/v1`. Pick a model with
 > Tip: instruction-tuned models ≥7B (e.g. Qwen 2.5 7B Instruct, Llama 3.1 8B
 > Instruct) give noticeably better checklists than smaller models.
 
+## Models & backends
+
+Pick a backend with `--backend <name>` (default `auto`). The app needs **no
+AI model at all** to work — the `keyword`, `bm25` and `template` backends are
+fully deterministic and run with zero dependencies — but a real LLM produces
+the most natural chat and the smartest clause selection.
+
+| `--backend` | What it runs | Model used | Extra dependency | Network | Best for |
+|-------------|--------------|------------|------------------|---------|----------|
+| `auto` *(default)* | First available of: LM Studio → Ollama → Claude API → embedded → keyword | depends on what it finds | none (lazy) | none until it reaches Claude | just works on any machine |
+| `lmstudio` | [LM Studio](https://lmstudio.ai) local server (`http://localhost:1234/v1`, OpenAI-compatible) | the model loaded in LM Studio | none (stdlib HTTP) | localhost only | local GPU/CPU, friendly UI |
+| `ollama` | [Ollama](https://ollama.com) (`http://localhost:11434/v1`) | the pulled/served model | none (stdlib HTTP) | localhost only | simple local CLI server |
+| `claude` | Anthropic **Claude API** | `claude-opus-4-8` (override `--llm-model`) | `pip install anthropic` | cloud | highest quality, no local GPU |
+| `embedded` | A **GGUF model in-process** via `llama-cpp-python` | Qwen2.5-1.5B-Instruct Q4_K_M (~1.1 GB), or any GGUF you supply | `pip install llama-cpp-python` | only the first download (or none if the model ships with the app) | fully offline, self-contained, no server |
+| `keyword` | Keyword retrieval over the guideline | none | none | none | zero-dependency fallback |
+| `bm25` | BM25 + cosine **hybrid retrieval** | none | none | none | better retrieval, still no model |
+| `template` | Pre-authored decision-tree scenarios (hardware/software/services/cybersecurity) | none | none | none | predictable, audited guidance |
+
+**Any OpenAI-compatible server** also works without a dedicated backend name —
+use a preset or a raw URL:
+
+```bash
+# Presets (add --api-key for the cloud ones): openai, groq, together, gemini,
+# vllm, text-gen-ui, ollama, lmstudio
+python purchasing-coach.pyz -g Guideline.docx --provider groq --api-key $GROQ_KEY -m llama-3.1-70b-versatile
+python purchasing-coach.pyz -g Guideline.docx --provider openai --api-key $OPENAI_KEY -m gpt-4o-mini
+
+# Or point at any server directly:
+python purchasing-coach.pyz -g Guideline.docx --base-url http://my-host:8000/v1 -m my-model
+```
+
+### Choosing a model
+
+- **LM Studio / Ollama / OpenAI-compatible:** an **instruction-tuned model ≥7B**
+  gives the best clause selection — e.g. *Qwen2.5-7B-Instruct*,
+  *Llama-3.1-8B-Instruct*, *Mistral-7B-Instruct*. Avoid vision (`vlm`) and
+  embedding-only models (the app auto-skips them on LM Studio). The granular
+  requirement text is taken verbatim from the guideline, so even a modest model
+  mainly needs to pick the right clauses.
+- **Embedded (`--backend embedded`):** defaults to **Qwen2.5-1.5B-Instruct
+  (Q4_K_M)** — small enough to ship with the app and run on a laptop CPU. Swap in
+  any GGUF (e.g. a *Qwen2.5-7B-Instruct Q4_K_M*, ~4.7 GB, for better quality if
+  you have the RAM) via `--model-path`, a `models/` folder beside the app, or
+  `EMBEDDED_MODEL_DIR` (see below).
+- **Claude:** defaults to `claude-opus-4-8`; override with `--llm-model`.
+
+### Deploying the embedded model *with* the application
+
+The embedded backend looks for a model in this order, so you can ship one
+however suits your environment (only if none is found does it download once):
+
+1. `--model-path /path/to/model.gguf` — an explicit file.
+2. `EMBEDDED_MODEL_PATH` — same, via environment variable.
+3. **Bundled inside the zipapp** — `python scripts/build_portable.py
+   --with-model` builds a standalone `dist/purchasing-coach-embedded.pyz`
+   (~1.2 GB) with the GGUF inside; it's extracted to the cache once on first run.
+4. **A `models/` folder next to the `.pyz`** (or the loose `.gguf` beside it),
+   or a folder pointed to by `EMBEDDED_MODEL_DIR` — the "ship the app + a models
+   folder" layout.
+5. The local cache `~/.purchasing-coach/models/`.
+6. One-time download of the default model from Hugging Face.
+
+`auto` will also select `embedded` automatically when a model is bundled or
+sits beside the app.
+
+### Command-line options
+
+| Option | Purpose |
+|--------|---------|
+| `-g, --guideline PATH` | Guideline document (`.docx` / `.md` / `.txt` / `.pdf`) |
+| `-t, --template PATH` | Tender template `.xlsx` (a built-in layout is used if omitted) |
+| `-o, --out-dir DIR` | Where generated checklists are written |
+| `-b, --backend NAME` | `auto` *(default)*, `lmstudio`, `ollama`, `claude`, `embedded`, `keyword`, `bm25`, `template` |
+| `--provider NAME` | OpenAI-compatible preset: `openai`, `groq`, `together`, `gemini`, `vllm`, `text-gen-ui`, `ollama`, `lmstudio` |
+| `--base-url URL` | Any OpenAI-compatible server, e.g. `http://host:port/v1` |
+| `--api-key KEY` | API key for cloud OpenAI-compatible providers |
+| `--model-path PATH` | GGUF file for the `embedded` backend |
+| `-m, --llm-model NAME` | Model name/id (server-reported default, or `claude-opus-4-8`) |
+| `-w, --web` | Serve the browser chat UI instead of the terminal |
+| `-p, --port N` | Web UI port (default `8765`) |
+| `--no-browser` | With `--web`, don't auto-open the browser |
+
+### Environment variables
+
+| Variable | Used by | Effect |
+|----------|---------|--------|
+| `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` | `claude`, `auto` | Enables the Claude API backend |
+| `EMBEDDED_MODEL_PATH` | `embedded` | Explicit GGUF file path |
+| `EMBEDDED_MODEL_DIR` | `embedded` | Folder to scan for a bundled `.gguf` |
+| `GUIDELINE` / `TEMPLATE` | `run.sh` / `run.bat` | Default documents for the run scripts |
+
 ## Running from source
 
 ```bash
@@ -169,8 +293,10 @@ python scripts/build_portable.py      # rebuild dist/purchasing-coach.pyz
 
 Project layout:
 
-- `coach/backends.py` — LLM backends: OpenAI-compatible local servers
-  (LM Studio/Ollama, stdlib `urllib` only) and optional Claude API
+- `coach/backends/` — pluggable backends (one module each): `openai_compat`
+  (LM Studio/Ollama/any OpenAI-compatible server, stdlib `urllib` only),
+  `claude_api`, `embedded` (in-process GGUF), and the no-model `keyword`,
+  `bm25` and `template` backends; `__init__.py` is the registry/factory
 - `coach/documents.py` — guideline loading (docx/md/txt/pdf → text)
 - `coach/guideline.py` — clause index, granular per-clause requirement
   extraction + expansion, interview coverage questions (grounding)
