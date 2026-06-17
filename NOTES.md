@@ -852,6 +852,15 @@ Compliance Tracker) from the template, docx/md/txt loaders, offline tests.
   flows → exit 0, EOF exits cleanly → `cli.py` **65%** (remainder is the live
   chat-stream body + `--web`). Coverage **77% → 82%**. 142 tests, ruff clean,
   tests-only (no .pyz change).
+- **Pass 7 (iter 17):** robustness of the structured-output parsing layer
+  (`models.py`). Fixed a real edge: a model returning a **string** (not a list)
+  for `questions`/`requirements`/`messages`/`reactions` was iterated
+  character-by-character into garbage rows; all `from_dict` methods now guard
+  with `isinstance(..., list/dict)` and tolerate a non-dict top-level input.
+  `test_models.py` (+12) covers the guards, M/O normalisation, TBC defaults,
+  Session/ChatMessage round-trip, and `AnalyticsSnapshot.from_checklist`
+  (counts, coverage %, heatmap). `models.py` 77% → **98%**, total **82% → 83%**.
+  154 tests, ruff clean, .pyz rebuilt.
 - **Planned next passes (rough backlog):** (2) ruff `B`/`UP` tightening +
   confirm CI green; (3) type hints + `mypy`/`ty` in CI; (4) structured
   `logging` instead of bare `print` in library code, with a `--verbose` flag;

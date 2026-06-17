@@ -25,8 +25,13 @@ class InterviewPlan:
 
     @classmethod
     def from_dict(cls, data: dict) -> "InterviewPlan":
+        if not isinstance(data, dict):
+            data = {}
+        raw = data.get("questions")
+        if not isinstance(raw, list):
+            raw = []  # a string here would otherwise iterate char-by-char
         questions = []
-        for i, q in enumerate(data.get("questions") or [], start=1):
+        for i, q in enumerate(raw, start=1):
             if isinstance(q, str):
                 questions.append(InterviewQuestion(key=f"q{i}", question=q))
             elif isinstance(q, dict) and q.get("question"):
@@ -90,6 +95,8 @@ class TenderInfo:
 
     @classmethod
     def from_dict(cls, data: dict) -> "TenderInfo":
+        if not isinstance(data, dict):
+            data = {}
         return cls(**{name: _text(data.get(name))
                       for name in cls.TEMPLATE_LABELS.values()})
 
@@ -130,9 +137,12 @@ class TenderChecklist:
 
     @classmethod
     def from_dict(cls, data: dict) -> "TenderChecklist":
-        rows = [RequirementRow.from_dict(r)
-                for r in data.get("requirements") or []
-                if isinstance(r, dict)]
+        if not isinstance(data, dict):
+            data = {}
+        raw = data.get("requirements")
+        if not isinstance(raw, list):
+            raw = []
+        rows = [RequirementRow.from_dict(r) for r in raw if isinstance(r, dict)]
         rows = [r for r in rows if r.requirement]
         # Non-LLM backends may return empty rows; the Coach's deterministic
         # pipeline (reconcile, expand, ensure_core_sections) fills them in.
@@ -162,11 +172,16 @@ class ChatMessage:
 
     @classmethod
     def from_dict(cls, data: dict) -> "ChatMessage":
+        if not isinstance(data, dict):
+            data = {}
+        reactions = data.get("reactions")
+        if not isinstance(reactions, list):
+            reactions = []
         return cls(
             role=str(data.get("role", "user")),
             content=str(data.get("content", "")),
             timestamp=str(data.get("timestamp", "")),
-            reactions=list(data.get("reactions") or []),
+            reactions=reactions,
         )
 
 
@@ -197,7 +212,13 @@ class Session:
 
     @classmethod
     def from_dict(cls, data: dict) -> "Session":
-        msgs = [ChatMessage.from_dict(m) for m in (data.get("messages") or [])]
+        if not isinstance(data, dict):
+            data = {}
+        raw_msgs = data.get("messages")
+        if not isinstance(raw_msgs, list):
+            raw_msgs = []
+        msgs = [ChatMessage.from_dict(m) for m in raw_msgs
+                if isinstance(m, dict)]
         return cls(
             id=str(data.get("id", "")),
             title=str(data.get("title", "New session")),
