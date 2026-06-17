@@ -119,6 +119,28 @@ def test_bad_requests(server):
     assert err.value.code == 404
 
 
+class _FailingBackend(FakeBackend):
+    def complete_json(self, *a, **k):
+        raise RuntimeError("boom")
+
+
+def test_post_error_returns_500_and_is_logged(tmp_path, caplog):
+    ui = WebUI(Coach("guideline text", _FailingBackend()), _FailingBackend(),
+               "g.docx", None, tmp_path)
+    httpd = ui.make_server(port=0)
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    base = f"http://127.0.0.1:{httpd.server_address[1]}"
+    try:
+        with caplog.at_level("ERROR", logger="coach.webui"):
+            with pytest.raises(urllib.error.HTTPError) as err:
+                _post(base + "/api/tender/start", {"item": "x"})
+            assert err.value.code == 500
+        assert any("failed" in r.getMessage() for r in caplog.records)
+    finally:
+        httpd.shutdown()
+
+
 def test_security_headers_present(server):
     base, _ = server
     _, headers, _ = _get(base + "/api/meta")

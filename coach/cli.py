@@ -73,7 +73,11 @@ def main(argv: list[str] | None = None) -> int:
                         help="Port for the web UI (default: 8765)")
     parser.add_argument("--no-browser", action="store_true",
                         help="With --web, don't auto-open the browser")
+    parser.add_argument("--verbose", "-v", action="store_true",
+                        help="Enable debug logging to stderr")
     args = parser.parse_args(argv)
+
+    _configure_logging(args.verbose)
 
     if not args.guideline or not Path(args.guideline).exists():
         print(f"Guideline document not found: {args.guideline!r}\n"
@@ -149,6 +153,25 @@ def main(argv: list[str] | None = None) -> int:
             history.pop()
             continue
         history.append({"role": "assistant", "content": "".join(reply_parts)})
+
+
+def _configure_logging(verbose: bool) -> None:
+    """Send the ``coach`` logger to stderr; DEBUG with --verbose, else WARNING.
+
+    Sets the package logger level explicitly (not just ``basicConfig``, which is
+    a no-op when the host application already configured logging) so --verbose
+    always takes effect.
+    """
+    import logging
+
+    level = logging.DEBUG if verbose else logging.WARNING
+    if not logging.getLogger().handlers:
+        logging.basicConfig(
+            level=level,
+            format="%(levelname)s %(name)s: %(message)s",
+            stream=sys.stderr,
+        )
+    logging.getLogger("coach").setLevel(level)
 
 
 def _default(*names: str) -> str | None:

@@ -11,6 +11,7 @@ fonts, no CDN) so it works on locked-down, offline corporate machines.
 """
 
 import json
+import logging
 import re
 import threading
 import uuid
@@ -36,6 +37,8 @@ _SAFE_SESSION_ID = re.compile(r"[A-Za-z0-9_-]{1,64}\Z")
 
 # Cap request bodies so a bogus Content-Length can't exhaust memory.
 MAX_BODY_BYTES = 8 * 1024 * 1024
+
+log = logging.getLogger("coach.webui")
 
 
 class WebUI:
@@ -301,6 +304,7 @@ class _Handler(BaseHTTPRequestHandler):
             else:
                 self._json(404, {"error": "not found"})
         except Exception as exc:
+            log.exception("POST %s failed", path)
             self._json(500, {"error": str(exc)})
 
     def do_DELETE(self):
@@ -329,6 +333,7 @@ class _Handler(BaseHTTPRequestHandler):
         except BrokenPipeError:
             return
         except Exception as exc:
+            log.exception("chat stream failed")
             try:
                 self._chunk(f"\n[error: {exc}]".encode())
             except BrokenPipeError:

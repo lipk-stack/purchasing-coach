@@ -861,6 +861,15 @@ Compliance Tracker) from the template, docx/md/txt loaders, offline tests.
   Session/ChatMessage round-trip, and `AnalyticsSnapshot.from_checklist`
   (counts, coverage %, heatmap). `models.py` 77% → **98%**, total **82% → 83%**.
   154 tests, ruff clean, .pyz rebuilt.
+- **Pass 8 (iter 17):** logging & observability. The `coach` logger gets a
+  `NullHandler` in `coach/__init__.py` (library stays silent unless configured —
+  idiomatic). New CLI `--verbose/-v` configures stderr logging; it sets the
+  package logger level **explicitly** (not just `basicConfig`, which no-ops when
+  a host app already configured logging) so it always takes effect. The web
+  server previously **swallowed tracebacks** (suppressed `log_message`, bare
+  `except`); it now logs `log.exception` on POST failures and chat-stream errors
+  via `coach.webui`. +3 tests (`--verbose` level, 500-is-logged, cli flow);
+  156 tests, ruff clean, .pyz rebuilt.
 - **Planned next passes (rough backlog):** (2) ruff `B`/`UP` tightening +
   confirm CI green; (3) type hints + `mypy`/`ty` in CI; (4) structured
   `logging` instead of bare `print` in library code, with a `--verbose` flag;

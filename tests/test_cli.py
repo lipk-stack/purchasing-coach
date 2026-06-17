@@ -44,3 +44,13 @@ def test_eof_exits_cleanly(samples, monkeypatch):
     monkeypatch.setattr(builtins, "input", _raise)
     rc = main(["--guideline", str(samples["guideline"]), "--backend", "keyword"])
     assert rc == 0
+
+
+def test_verbose_flag_enables_debug_logging(samples, monkeypatch):
+    import logging
+
+    monkeypatch.setattr(builtins, "input", lambda *a, **k: "/quit")
+    rc = main(["--guideline", str(samples["guideline"]),
+               "--backend", "keyword", "--verbose"])
+    assert rc == 0
+    assert logging.getLogger("coach").getEffectiveLevel() <= logging.DEBUG
