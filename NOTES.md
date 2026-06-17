@@ -2,6 +2,18 @@
 
 Reference this file at the start of each routine run.
 
+## Iteration 18 — 2026-06-17 (loop round 2: another 10 production passes)
+
+Continued the production-quality loop (scheduling tools still unavailable, so
+run inline). Running tally appended per pass:
+
+- **Pass 11:** TemplateBackend (decision-tree) coverage 58% → **84%**.
+  `test_template_backend.py` (+13): scenario detection, condition evaluation
+  (`true`/`==`/`!=`/`OR`/fuzzy), interview plan, always+conditional section
+  selection, headings-only one-row-per-clause path, synthetic-root path with no
+  loaded guideline, unknown-schema, and chat composition. Total **84% → 86%**,
+  180 tests, ruff clean (tests-only).
+
 ## Iteration 17 — 2026-06-17 (loop pass 1/10: production-quality foundation)
 
 User started a `/loop` to "enhance everything to production quality, at least 10
