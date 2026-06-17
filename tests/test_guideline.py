@@ -401,3 +401,48 @@ def test_sections_from_answers_includes_financial_and_post_implementation():
     # Declining both keeps them out of the checklist.
     declined = [(q, "No") for q in questions]
     assert sections_from_answers(declined, clauses) == []
+
+
+# Section 13 (the SBOM declaration) is a granular vendor obligation referenced
+# from core section 4.3, but it lives in the "Appendix" — a weak model rarely
+# cites it and it is not a CORE_SECTION, so without an answer-driven hook it
+# silently dropped out of the checklist. These pin the SBOM coverage.
+SBOM_GUIDELINE = """\
+# XXEON IT Procurement Guideline
+
+## 9 SOFTWARE REQUIREMENTS
+
+### 9.1 Licensing
+
+Licensing terms must be defined.
+
+## 13 APPENDIX
+
+### 13.1 Software Bill of Materials (SBOM) Template
+
+Vendors are required to complete and submit the SBOM template. The SBOM must
+enumerate all software libraries, frameworks, dependencies and third-party
+components. Each entry must specify the component name, version and licence.
+"""
+
+
+def test_coverage_asks_for_sbom_when_section_present():
+    clauses = parse_clauses(SBOM_GUIDELINE)
+    joined = " ".join(q for _, q in coverage_questions(clauses)).lower()
+    assert "software bill of materials" in joined
+    # A software item keeps the SBOM question; a pure-hardware item drops it.
+    sw = " ".join(
+        q for _, q in relevant_coverage_questions(clauses, "ERP software suite")
+    ).lower()
+    assert "software bill of materials" in sw
+
+
+def test_sections_from_answers_includes_sbom_when_affirmed():
+    clauses = parse_clauses(SBOM_GUIDELINE)
+    question = dict(coverage_questions(clauses))[
+        "sbom,bill of materials,software component,third-party,"
+        "dependencies,libraries"
+    ]
+    assert "13" in sections_from_answers([(question, "Yes")], clauses)
+    # Declining keeps the appendix out.
+    assert "13" not in sections_from_answers([(question, "No")], clauses)

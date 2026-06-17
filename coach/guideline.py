@@ -342,6 +342,11 @@ _COVERAGE = [
     ("9", ("software", "licen", "application", "subscription"),
      "Does it include software or application licensing? If so, which model is "
      "preferred (perpetual, subscription or SaaS)?", "9"),
+    ("13", ("sbom", "bill of materials", "software component", "third-party",
+            "dependencies", "libraries"),
+     "Will the solution include any software components, libraries, frameworks "
+     "or third-party dependencies that require a Software Bill of Materials "
+     "(SBOM) declaration?", "13"),
     ("10", ("total cost", "ownership", "tco", "roi", "payment schedule",
             "financial"),
      "What are the financial expectations — should the vendor provide a "
@@ -414,7 +419,7 @@ def coverage_questions(clauses: dict[str, str]) -> list[tuple[str, str]]:
 # integration), so they are the ones worth tailoring to the item. Everything
 # else (contract, data/security, support, cloud, financial, post-implementation,
 # cybersecurity assessment) can apply to any purchase and is always asked.
-ITEM_TYPE_ROOTS = {"6", "8", "9"}
+ITEM_TYPE_ROOTS = {"6", "8", "9", "13"}
 
 # Plain-language cues that signal an item-type topic is relevant, beyond the
 # topic's own dedupe keywords. Lets "20 laptops" select the hardware question
@@ -432,6 +437,14 @@ _ITEM_SIGNALS = {
     "9": ("software", "licen", "application", "subscription", "app", "saas",
           "platform", "suite", "erp", "crm", "office", "microsoft", "adobe",
           "antivirus", "database", "middleware", "module", "portal"),
+    # The SBOM declaration (section 13) is a *software* composition obligation,
+    # so it is relevant to the same item signals as a software buy (plus
+    # firmware-bearing appliances) and is left out only for a clearly
+    # software-free commodity purchase.
+    "13": ("software", "licen", "application", "subscription", "app", "saas",
+           "platform", "suite", "erp", "crm", "office", "microsoft", "adobe",
+           "antivirus", "database", "middleware", "module", "portal", "sbom",
+           "firmware", "embedded", "library", "open source", "open-source"),
 }
 
 
@@ -495,7 +508,7 @@ def sections_from_answers(
     Reverse-prompting exists so the buyer's own answers decide which
     item-specific guideline sections apply. For every coverage topic tied to a
     section (integration → 6, support → 7, hardware → 8, software → 9,
-    financial → 10, post-implementation → 12), if the
+    financial → 10, post-implementation → 12, SBOM declaration → 13), if the
     matching interview answer is affirmative the whole section is pulled into
     the checklist deterministically — independent of the model's clause
     selection, so a weak model can't drop a section the buyer said applies.

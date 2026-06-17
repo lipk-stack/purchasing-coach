@@ -2,6 +2,41 @@
 
 Reference this file at the start of each routine run.
 
+## Iteration 23 — 2026-06-17 (close the SBOM coverage gap; routine health check)
+
+Routine run. Started healthy: 194 tests pass, `ruff` clean, **CI green on the
+real GitHub Actions runner** for both `main` and the dev branch (verified via
+the GitHub MCP — this closes follow-up #13's "confirm CI goes green on a real
+runner"). Drive `XXEON_IT_Procurement_Guideline.docx` + `TENDER_TEMPLATE.xlsx`
+both still `modifiedTime 2026-06-10T13:05:11Z` — **unchanged**, so no sample
+refresh needed (follow-up #4/#5). `origin/main` == dev branch on entry (my local
+remote-tracking ref was stale; a fetch showed them already in sync at `4fd89ec`).
+
+**Change — full-guideline coverage fix (the task's core ask).** Audited the
+guideline's section list (3–13) against the reverse-prompting `_COVERAGE`
+topics + `CORE_SECTIONS`. Found one genuine gap: **section 13.1, the Software
+Bill of Materials (SBOM) declaration**, is a granular *mandatory* vendor
+obligation (4 atomic "must/required" statements) referenced from core section
+4.3 — but it sits in the "Appendix", is not a core section, and had no
+answer-driven hook, so it landed in a checklist only if the model happened to
+cite clause 13 (which small local models won't). Fixed in `coach/guideline.py`:
+
+- Added a `_COVERAGE` entry for section 13 (`include_root="13"`) asking whether
+  the solution includes software components/libraries/third-party dependencies
+  requiring an SBOM declaration.
+- Made it **item-type-gated** (`ITEM_TYPE_ROOTS` += `"13"`, with software-style
+  `_ITEM_SIGNALS`), so a software/SaaS or vague buy is asked but a pure hardware
+  commodity buy (e.g. "200 monitors and cabling") is not asked for a *Software*
+  BOM — consistent with the existing inclusive/compliance-safe gating.
+- On an affirmative answer, `sections_from_answers` now returns `"13"` and
+  `ensure_core_sections` folds the four atomic SBOM rows into the tracker
+  deterministically, independent of model selection.
+
+Verified end-to-end against the real sample guideline: a SaaS item now asks the
+SBOM question and produces 4 mandatory section-13.1 rows; commodity hardware
+correctly omits it. +2 tests in `tests/test_guideline.py` (**196 total**),
+ruff clean, `.pyz` rebuilt (333 KB) and smoke-tested. CHANGELOG `Added` entry.
+
 ## Iteration 22 — 2026-06-17 (embedded model: stop the infinite loop; make it default)
 
 User: "embedded backend with built-in SLM loops nonstop — fix all issues, make

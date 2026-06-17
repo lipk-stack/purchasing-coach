@@ -8,6 +8,18 @@ to follow [Semantic Versioning](https://semver.org/).
 
 Production-quality hardening pass.
 
+### Added
+- **SBOM declaration now covered by the checklist (closes a coverage gap).**
+  Section 13.1 (the Software Bill of Materials declaration) is a granular,
+  mandatory vendor obligation referenced from core section 4.3, but it lives in
+  the guideline's "Appendix" — a weak model rarely cites it and it is not a
+  cross-cutting core section, so its requirements silently dropped out of
+  generated checklists. The interview now asks an answer-driven SBOM question
+  (tied to section 13), gated to software-bearing purchases, so a buyer
+  procuring software/SaaS is reliably prompted and the four atomic SBOM
+  requirements are folded into the compliance tracker — while a pure hardware
+  commodity buy is not asked for a Software BOM.
+
 ### Fixed
 - **Embedded model no longer loops forever.** Small GGUF models (the bundled
   Qwen2.5-1.5B) could stream the same phrase endlessly. Root causes addressed:
