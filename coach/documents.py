@@ -13,25 +13,75 @@ _W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 
 
 def load_guideline(path: str | Path) -> str:
-    """Return the guideline document as plain text with headings preserved."""
+    """Return the guideline document as plain text with headings preserved.
+
+    Raises a clear, actionable error rather than a cryptic stdlib exception when
+    the file is missing, a directory, an unsupported format, corrupt, or empty.
+    """
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(f"Guideline document not found: {path}")
+    if not path.is_file():
+        raise ValueError(f"Guideline path is not a file: {path}")
+
     suffix = path.suffix.lower()
     if suffix == ".docx":
-        return _load_docx(path)
-    if suffix in (".md", ".markdown", ".txt"):
-        return path.read_text(encoding="utf-8")
-    if suffix == ".pdf":
-        return _load_pdf(path)
-    raise ValueError(
-        f"Unsupported guideline format '{suffix}'. Use .docx, .md, .txt or .pdf."
-    )
+        text = _load_docx(path)
+    elif suffix in (".md", ".markdown", ".txt"):
+        text = _read_text_file(path)
+    elif suffix == ".pdf":
+        text = _load_pdf(path)
+    else:
+        raise ValueError(
+            f"Unsupported guideline format '{suffix}'. "
+            "Use .docx, .md, .txt or .pdf."
+        )
+
+    if not text or not text.strip():
+        raise ValueError(
+            f"Guideline document '{path.name}' contains no readable text. "
+            "Check that it is the right file and is not empty or image-only."
+        )
+    return text
+
+
+def _read_text_file(path: Path) -> str:
+    """Read a text/markdown file, tolerating common non-UTF-8 encodings.
+
+    Procurement documents are often exported from Windows tools (cp1252). Try
+    UTF-8 first (with and without BOM), then cp1252; latin-1 decodes any byte
+    sequence, so it is the guaranteed final fallback.
+    """
+    for encoding in ("utf-8", "utf-8-sig", "cp1252", "latin-1"):
+        try:
+            return path.read_text(encoding=encoding)
+        except UnicodeDecodeError:
+            continue
+    # Unreachable in practice (latin-1 never raises) — defensive only.
+    return path.read_text(encoding="utf-8", errors="replace")
 
 
 def _load_docx(path: Path) -> str:
-    with zipfile.ZipFile(path) as zf:
-        root = ET.fromstring(zf.read("word/document.xml"))
+    try:
+        with zipfile.ZipFile(path) as zf:
+            data = zf.read("word/document.xml")
+    except zipfile.BadZipFile as exc:
+        raise ValueError(
+            f"'{path.name}' is not a valid .docx file (corrupt, or not a Word "
+            "document). If it's a .doc, re-save it as .docx."
+        ) from exc
+    except KeyError as exc:
+        raise ValueError(
+            f"'{path.name}' is missing word/document.xml — not a valid .docx "
+            "file."
+        ) from exc
+
+    try:
+        root = ET.fromstring(data)
+    except ET.ParseError as exc:
+        raise ValueError(
+            f"'{path.name}' contains malformed XML and could not be read."
+        ) from exc
 
     lines: list[str] = []
     for para in root.iter(f"{_W}p"):

@@ -94,7 +94,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Backend setup failed: {exc}", file=sys.stderr)
         return 2
 
-    guideline_text = load_guideline(args.guideline)
+    try:
+        guideline_text = load_guideline(args.guideline)
+    except (FileNotFoundError, ValueError) as exc:
+        print(f"Could not load the guideline: {exc}", file=sys.stderr)
+        return 2
     coach = Coach(guideline_text, backend)
 
     if args.web:

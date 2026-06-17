@@ -815,6 +815,14 @@ Compliance Tracker) from the template, docx/md/txt loaders, offline tests.
   scheduling tools `ScheduleWakeup`/`CronCreate` are NOT available in this
   environment, so loop passes are run back-to-back inline within the session
   rather than as deferred firings.)
+- **Pass 3 (iter 17):** input validation & error handling. `documents.py`
+  `load_guideline` now raises clear, actionable errors instead of cryptic
+  stdlib ones — rejects directories, corrupt/`.doc` files (`BadZipFile`),
+  `.docx` missing `word/document.xml`, malformed XML, and empty/image-only docs;
+  text/markdown reading falls back through utf-8 → utf-8-sig → cp1252 → latin-1
+  so Windows-exported guidelines load. The CLI wraps `load_guideline` and prints
+  a clean message + exit code 2 instead of a traceback. +7 tests
+  (`test_documents.py`); 113 total, ruff clean, .pyz rebuilt.
 - **Planned next passes (rough backlog):** (2) ruff `B`/`UP` tightening +
   confirm CI green; (3) type hints + `mypy`/`ty` in CI; (4) structured
   `logging` instead of bare `print` in library code, with a `--verbose` flag;
