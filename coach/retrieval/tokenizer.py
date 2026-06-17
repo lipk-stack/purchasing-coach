@@ -44,9 +44,8 @@ STOPWORDS: frozenset[str] = frozenset({
     "also", "just", "only", "very", "too", "than", "more",
     "such", "own", "same", "other", "another", "here", "there",
     "now", "once", "again", "further", "most", "least",
-    "its", "let", "may", "let",
-    # --- procurement noise words ---
-    "etc", "ie", "eg", "via", "vs",
+    "let", # --- procurement noise words ---
+    "etc", "ie", "eg", "vs",
 })
 
 # Pre-compiled pattern: keep letters, digits, and intra-word hyphens.

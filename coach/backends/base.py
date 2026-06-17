@@ -63,7 +63,7 @@ class BackendProtocol(ABC):
         """
         return {"status": "ok", "detail": self.name or "unknown"}
 
-    def load_guideline(
+    def load_guideline(  # noqa: B027  (optional hook — no-op by default)
         self,
         guideline_text: str,
         clauses: dict[str, str],

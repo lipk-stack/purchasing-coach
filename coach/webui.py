@@ -301,7 +301,7 @@ class _Handler(BaseHTTPRequestHandler):
             return
         except Exception as exc:
             try:
-                self._chunk(f"\n[error: {exc}]".encode("utf-8"))
+                self._chunk(f"\n[error: {exc}]".encode())
             except BrokenPipeError:
                 return
         try:

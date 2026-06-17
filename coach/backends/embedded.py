@@ -224,7 +224,7 @@ class EmbeddedBackend(BackendProtocol):
         """Download the default model from HuggingFace Hub."""
         try:
             from huggingface_hub import hf_hub_download  # type: ignore[import-untyped]
-        except ImportError:
+        except ImportError as exc:
             # llama-cpp-python depends on huggingface-hub, so this should
             # always be available — but handle it gracefully just in case.
             raise BackendError(
@@ -232,7 +232,7 @@ class EmbeddedBackend(BackendProtocol):
                 "Install it with: pip install huggingface-hub\n"
                 "Or provide a local GGUF file via --model-path or "
                 "EMBEDDED_MODEL_PATH."
-            )
+            ) from exc
 
         _MODEL_CACHE.mkdir(parents=True, exist_ok=True)
         try:

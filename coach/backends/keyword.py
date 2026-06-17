@@ -114,7 +114,7 @@ class KeywordBackend(BackendProtocol):
             "Based on the purchasing guideline, here's what I found:\n",
         ]
 
-        for _i, (doc_id, score, meta) in enumerate(results[:3]):
+        for _i, (_doc_id, _score, meta) in enumerate(results[:3]):
             ref = meta.get("ref", "")
             title = meta.get("title", "General")
             text = meta.get("text", "")
@@ -171,7 +171,7 @@ class KeywordBackend(BackendProtocol):
         item_desc = item_match.group(1).strip() if item_match else prompt.strip()
 
         questions: list[dict[str, str]] = []
-        for i, (keywords, question) in enumerate(
+        for i, (_keywords, question) in enumerate(
             relevant_coverage_questions(self._clauses, item_desc), 1
         ):
             questions.append({"key": f"cover_{i}", "question": question})

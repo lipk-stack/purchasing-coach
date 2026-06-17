@@ -144,7 +144,7 @@ class BM25Backend(BackendProtocol):
             "Based on the guideline, here are the most relevant sections:\n",
         ]
 
-        for i, (doc_id, score, meta) in enumerate(results[:3]):
+        for i, (_doc_id, _score, meta) in enumerate(results[:3]):
             ref = meta.get("ref", "")
             title = meta.get("title", "General")
             text = meta.get("text", "")
@@ -250,7 +250,7 @@ class BM25Backend(BackendProtocol):
         # Coverage questions grounded in the guideline's sections, tailored to
         # the item being purchased.
         questions: list[dict[str, str]] = []
-        for i, (keywords, question) in enumerate(
+        for i, (_keywords, question) in enumerate(
             relevant_coverage_questions(self._clauses, item_desc), 1
         ):
             questions.append({"key": f"cover_{i}", "question": question})

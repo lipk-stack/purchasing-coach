@@ -805,6 +805,16 @@ Compliance Tracker) from the template, docx/md/txt loaders, offline tests.
 - **Pass 1 (iter 17):** packaging (`pyproject.toml` + console script), pytest
   scoping fix, ruff lint + clean-up, CI workflow — and fixed a real
   section-dropping bug (`F601`) the linter surfaced.
+- **Pass 2 (iter 17):** enabled ruff bugbear (`B`) + pyupgrade (`UP`) and fixed
+  every finding — unused loop vars → `_`-prefixed (`B007` in bm25/keyword),
+  `raise ... from exc` in the embedded download path (`B904`), duplicate
+  stopword set entries removed (`B033`), `Callable` imported from
+  `collections.abc` and an unnecessary `encode("utf-8")` modernised (`UP`), and
+  a documented `# noqa: B027` on the optional `load_guideline` hook. `ruff
+  check .` clean with the stricter ruleset; 107 tests still pass. (Note:
+  scheduling tools `ScheduleWakeup`/`CronCreate` are NOT available in this
+  environment, so loop passes are run back-to-back inline within the session
+  rather than as deferred firings.)
 - **Planned next passes (rough backlog):** (2) ruff `B`/`UP` tightening +
   confirm CI green; (3) type hints + `mypy`/`ty` in CI; (4) structured
   `logging` instead of bare `print` in library code, with a `--verbose` flag;

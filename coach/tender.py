@@ -3,7 +3,7 @@
 import re
 from datetime import date
 from pathlib import Path
-from typing import Callable
+from collections.abc import Callable
 
 from .excel import write_checklist
 from .llm import Coach

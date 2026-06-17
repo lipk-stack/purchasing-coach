@@ -66,6 +66,6 @@ extend-exclude = ["build", "dist", ".design-tools", "stress_test.py"]
 
 [tool.ruff.lint]
 # Pyflakes (F) catches real bugs (unused/undefined names, duplicate keys);
-# the E4/E7/E9/W subset covers import, statement and runtime-syntax issues.
-# Bugbear (B) / pyupgrade (UP) are a planned follow-up tightening.
-select = ["E4", "E7", "E9", "F", "W"]
+# E4/E7/E9/W cover import, statement and runtime-syntax issues; bugbear (B)
+# catches likely-wrong constructs; pyupgrade (UP) keeps syntax modern.
+select = ["E4", "E7", "E9", "F", "W", "B", "UP"]
