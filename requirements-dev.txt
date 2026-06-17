@@ -1,5 +1,6 @@
 -r requirements.txt
 pytest>=8
+pytest-cov>=5      # coverage measurement (pytest --cov=coach)
 ruff>=0.5          # linting (also wired into CI); config in pyproject.toml
 python-docx>=1.1   # used by scripts/make_samples.py to rebuild the sample docx
 anthropic>=0.50

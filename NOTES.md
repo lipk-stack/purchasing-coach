@@ -834,6 +834,16 @@ Compliance Tracker) from the template, docx/md/txt loaders, offline tests.
   Added **`X-Content-Type-Options: nosniff`** and `Referrer-Policy: no-referrer`
   to all responses. +3 tests (`test_webui.py`); 116 total, ruff clean, .pyz
   rebuilt (327 KB).
+- **Pass 5 (iter 17):** test coverage. The retrieval engine
+  (`retrieval/tokenizer`, `index`, `ranker`) and the `keyword`/`bm25` backends
+  were at **0%** despite `keyword` being the default no-LLM fallback. Added
+  `tests/test_retrieval.py` (+16): tokenizer/stem/ngrams, index build + BM25/df/
+  idf stats, BM25/cosine ranking + RRF fusion ordering, and both retrieval
+  backends end-to-end (item-tailored interview, checklist build, chat,
+  health). Coverage **57% → 77%** (retrieval modules now 88–95%). Wired
+  `pytest-cov` into the `dev` extra + `[tool.coverage.run]` config (no failing
+  threshold, to keep CI stable). 132 tests, ruff clean. No source change — .pyz
+  unchanged.
 - **Planned next passes (rough backlog):** (2) ruff `B`/`UP` tightening +
   confirm CI green; (3) type hints + `mypy`/`ty` in CI; (4) structured
   `logging` instead of bare `print` in library code, with a `--verbose` flag;
