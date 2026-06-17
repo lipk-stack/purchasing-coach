@@ -4,7 +4,10 @@ __pycache__/
 TENDER_CHECKLIST_*.xlsx
 .venv/
 build/
+dist/
 *.egg-info/
+.coverage
+htmlcov/
 
 # local design/stress-test tooling (browserless UI harness)
 .design-tools/

@@ -49,6 +49,7 @@ packages = [
     "coach.backends",
     "coach.retrieval",
     "coach.templates",
+    "coach.gguf_models",
 ]
 
 [tool.setuptools.dynamic]

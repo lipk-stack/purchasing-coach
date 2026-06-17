@@ -34,7 +34,9 @@ _MODEL_CACHE = Path.home() / ".purchasing-coach" / "models"
 # Package that holds a GGUF model bundled *with* the application — this is
 # where ``scripts/build_portable.py --with-model`` drops the file so the model
 # ships inside the zipapp and runs with no download.
-_BUNDLED_PACKAGE = "coach.models"
+# NOTE: Cannot use "coach.models" — that name is taken by the dataclass
+# module (coach/models.py).
+_BUNDLED_PACKAGE = "coach.gguf_models"
 
 
 class EmbeddedBackend(BackendProtocol):

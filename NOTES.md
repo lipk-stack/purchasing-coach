@@ -2,6 +2,71 @@
 
 Reference this file at the start of each routine run.
 
+## Iteration 19 — 2026-06-17 (portable embedded bundle: out-of-the-box delivery)
+
+Built and verified a fully portable embedded distribution that runs without
+LM Studio, Ollama, API keys, or model downloads — the user only needs
+Python 3.10+ on PATH.
+
+### What was done
+
+1. **Native DLL bootstrap** (`scripts/_bootstrap.py`): the embedded zipapp
+   can't load C extensions (.pyd) or ctypes DLLs from inside a zip, so a
+   bootstrap module extracts numpy and llama-cpp-python to a temp directory
+   before any imports. Uses `LLAMA_CPP_LIB_PATH` + `os.add_dll_directory()`
+   for DLL resolution. Extraction is cached per zipapp fingerprint (size+mtime).
+
+2. **Build pipeline fixes** (`scripts/build_portable.py --with-model`):
+   - Added `--extra-index-url` for pre-built llama-cpp-python wheels (PyPI
+     only has source tarballs that need a C compiler).
+   - Pinned llama-cpp-python to 0.3.19 — v0.3.30 crashes with
+     `STATUS_ILLEGAL_INSTRUCTION` during `q4_K_8x8` tensor repack on some
+     CPUs (including i5-13450HX).
+   - Renamed bundled model package from `coach/models/` to `coach/gguf_models/`
+     — the directory was shadowing `coach/models.py` (dataclasses), breaking
+     `RequirementRow` imports.
+   - Model downloads are cached in `build/model_cache/` for fast rebuilds.
+   - Static `.lib` files stripped from the zipapp.
+
+3. **Context window**: increased default from 4096 → 8192 tokens. Added
+   `--n-ctx N` CLI flag threaded through `get_backend()` → `EmbeddedBackend`.
+
+4. **Launcher updates**: `run.bat` now prefers `purchasing-coach-embedded.pyz`
+   (delayed expansion). New `scripts/portable_run.bat` defaults to
+   `--backend embedded` so the bundled model is always used.
+
+5. **Portable bundle**: `dist/purchasing-coach-portable.zip` (~1 GB) packages
+   the embedded `.pyz` + `run.bat` + `samples/` + `README.md`. Tested
+   end-to-end from an arbitrary extracted directory — model loads, generates
+   responses, `/quit` exits cleanly.
+
+### Verified
+
+- 180 tests pass (no regressions from the `n_ctx` / `gguf_models` changes).
+- Embedded zipapp starts, loads the bundled Qwen2.5-1.5B, generates a
+  response to a guideline question, and exits on `/quit`.
+- Portable bundle works from an arbitrary directory (tested in `%TEMP%`).
+
+### Follow-ups for the next iteration
+
+- **Performance**: the 1.5B model with 8192 context is slow on CPU (~24 tok/s
+  prompt eval, ~10 tok/s generation). Consider streaming-first UI, or
+  document `--n-ctx 4096` for shorter guidelines to speed things up.
+- **Model quality**: Qwen2.5-1.5B gives generic answers for precise clause
+  lookups. A 7B Q4 model (~4.7 GB) would fit in 8 GB RAM and give much better
+  clause selection — consider offering it as an optional upgrade.
+- **Embedded Python**: for truly zero-dependency delivery, bundle the Python
+  embeddable distribution (~25 MB) inside the portable zip. This would
+  eliminate the Python-on-PATH requirement entirely.
+- **GPU support**: the CPU-only wheel is used. For machines with NVIDIA GPUs,
+  a CUDA-enabled wheel would dramatically speed up inference.
+- **CI for embedded build**: the `--with-model` build is too heavy for GitHub
+  Actions (1.1 GB model download). Consider a separate release workflow or
+  artifact caching.
+- **Cross-platform testing**: the bootstrap was developed and tested on
+  Windows. Verify the DLL extraction logic also works on Linux (.so) and
+  macOS (.dylib).
+
 ## Iteration 18 — 2026-06-17 (loop round 2: another 10 production passes)
 
 Continued the production-quality loop (scheduling tools still unavailable, so

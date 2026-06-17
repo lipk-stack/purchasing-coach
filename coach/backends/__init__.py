@@ -40,14 +40,16 @@ __all__ = [
 
 
 def detect_backend(kind: str = "auto", base_url: str | None = None,
-                   model: str | None = None, log=print) -> BackendProtocol:
+                   model: str | None = None, log=print,
+                   n_ctx: int = 8192) -> BackendProtocol:
     """Backward-compatible alias for ``get_backend()``.
 
     Existing code (``cli.py``, tests) calls ``detect_backend(kind, base_url,
     model)``.  This wrapper preserves that positional-argument signature
     while delegating to the new ``get_backend()``.
     """
-    return get_backend(kind, base_url=base_url, model=model, log=log)
+    return get_backend(kind, base_url=base_url, model=model, log=log,
+                       n_ctx=n_ctx)
 
 # Every backend name that can be selected via ``--backend``.
 ALL_BACKENDS = [
@@ -82,6 +84,7 @@ def get_backend(
     api_key: str | None = None,
     provider: str | None = None,
     model_path: str | None = None,
+    n_ctx: int = 8192,
     log=print,
 ) -> BackendProtocol:
     """Build the requested backend, auto-detecting when ``kind='auto'``.
@@ -141,7 +144,7 @@ def get_backend(
     if kind == "embedded":
         from .embedded import EmbeddedBackend
 
-        return EmbeddedBackend(model_path=model_path)
+        return EmbeddedBackend(model_path=model_path, n_ctx=n_ctx)
 
     if kind != "auto":
         raise BackendError(f"unknown backend {kind!r}")
@@ -174,7 +177,7 @@ def get_backend(
         from .embedded import EmbeddedBackend
 
         if EmbeddedBackend.is_available() and EmbeddedBackend.has_cached_model():
-            backend = EmbeddedBackend(model_path=model_path)
+            backend = EmbeddedBackend(model_path=model_path, n_ctx=n_ctx)
             log(
                 f"Using embedded model '{backend.model}' (local GGUF). "
                 "No external server needed."

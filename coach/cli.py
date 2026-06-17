@@ -63,6 +63,10 @@ def main(argv: list[str] | None = None) -> int:
                              "with the app (bundled, or a models/ folder beside "
                              "it), then the cache, then auto-downloads "
                              "Qwen2.5-1.5B.")
+    parser.add_argument("--n-ctx", type=int, default=8192,
+                        help="Context window size in tokens for the embedded "
+                             "backend (default: 8192). Larger values allow "
+                             "longer guidelines but use more RAM.")
     parser.add_argument("--llm-model", "-m",
                         help="Model name (default: first model the local "
                              "server reports / claude-opus-4-8 for Claude)")
@@ -93,6 +97,7 @@ def main(argv: list[str] | None = None) -> int:
             api_key=args.api_key,
             provider=args.provider,
             model_path=args.model_path,
+            n_ctx=args.n_ctx,
         )
     except BackendError as exc:
         print(f"Backend setup failed: {exc}", file=sys.stderr)

@@ -160,6 +160,34 @@ server with `--base-url http://host:port/v1`. Pick a model with
 > Tip: instruction-tuned models ≥7B (e.g. Qwen 2.5 7B Instruct, Llama 3.1 8B
 > Instruct) give noticeably better checklists than smaller models.
 
+## Portable bundle (fully offline, no server, no downloads)
+
+The **portable bundle** (`dist/purchasing-coach-portable.zip`) is a single
+zip file (~1 GB) that end users can extract and run anywhere — no LM Studio,
+Ollama, API key, or model download needed. It bundles the app, the Qwen2.5-1.5B
+GGUF model, sample documents, and a launcher script:
+
+```
+purchasing-coach-portable/
+├── run.bat                             # double-click to launch
+├── purchasing-coach-embedded.pyz       # app + bundled AI model
+├── samples/                            # guideline + template
+│   ├── XXEON_IT_Procurement_Guideline.docx
+│   └── TENDER_TEMPLATE.xlsx
+└── README.md
+```
+
+**To deliver:** extract the zip onto a USB stick, network share, or any
+folder. The user double-clicks `run.bat` — the browser UI opens on
+`localhost:8765` with the embedded model running locally. The only
+prerequisite is Python 3.10+ on the PATH.
+
+The embedded `.pyz` uses a bootstrap module (`scripts/_bootstrap.py`) that
+extracts native DLLs (numpy, llama-cpp-python) from the zipapp to a temp
+directory on first run, since C extensions and ctypes DLLs cannot be loaded
+directly from inside a Python zip archive. Subsequent launches reuse the
+cached extraction.
+
 ## Models & backends
 
 Pick a backend with `--backend <name>` (default `auto`). The app needs **no
@@ -237,6 +265,7 @@ sits beside the app.
 | `--base-url URL` | Any OpenAI-compatible server, e.g. `http://host:port/v1` |
 | `--api-key KEY` | API key for cloud OpenAI-compatible providers |
 | `--model-path PATH` | GGUF file for the `embedded` backend |
+| `--n-ctx N` | Context window size in tokens for the embedded backend (default `8192`). Increase for long guidelines |
 | `-m, --llm-model NAME` | Model name/id (server-reported default, or `claude-opus-4-8`) |
 | `-w, --web` | Serve the browser chat UI instead of the terminal |
 | `-p, --port N` | Web UI port (default `8765`) |
@@ -290,7 +319,18 @@ python scripts/make_samples.py        # rebuild sample docx/xlsx
 ruff check .                          # lint
 pytest                                # offline — LLM calls are faked/mocked
 python scripts/build_portable.py      # rebuild dist/purchasing-coach.pyz
+python scripts/build_portable.py --with-model   # rebuild embedded bundle (~1 GB)
 ```
+
+The `--with-model` variant requires the `llama-cpp-python` pre-built wheel
+(available via `--extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu`;
+the build script handles this automatically). The first build downloads the
+GGUF model (~1.1 GB); it is cached in `build/model_cache/` for faster rebuilds.
+The embedded build produces `dist/purchasing-coach-embedded.pyz`. To create
+the full portable zip bundle for distribution, run the packaging step from
+`scripts/portable_run.bat` or zip `dist/purchasing-coach-embedded.pyz` together
+with `scripts/portable_run.bat` (as `run.bat`), `scripts/portable_README.md`
+(as `README.md`), and the `samples/` directory.
 
 Packaging/metadata and tool config (pytest, ruff) live in `pyproject.toml`;
 installing also provides a `purchasing-coach` console script. Lint and the full
@@ -314,4 +354,11 @@ Project layout:
 - `coach/excel.py` — template-aware checklist writer
 - `coach/cli.py` — interactive CLI
 - `coach/webui.py` — local browser UI (stdlib `http.server`)
+- `coach/gguf_models/` — package directory for bundled GGUF model files (the
+  build script drops the model here; separate from `coach/models.py`)
+- `scripts/build_portable.py` — zipapp builder (`--with-model` for embedded)
+- `scripts/_bootstrap.py` — native DLL extraction bootstrap for the embedded
+  zipapp (extracts numpy + llama-cpp-python to a temp dir at startup)
+- `scripts/portable_run.bat` — portable bundle launcher (double-click to start)
+- `scripts/portable_README.md` — end-user README shipped in the portable bundle
 - `NOTES.md` — follow-ups for the next iteration
