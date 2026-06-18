@@ -1,3 +1,5 @@
+import re
+
 from openpyxl import load_workbook
 
 from coach.excel import (
@@ -148,3 +150,119 @@ def test_review_sheet_compliance_rate_and_blocker_formatting(samples, tmp_path):
              for r in rules if target in str(rng.sqref)]
     operators = {r.operator for r in rules}
     assert "greaterThan" in operators and "equal" in operators
+
+
+# --- Live-formula evaluation -------------------------------------------------
+# The tests above check the formula *strings*; openpyxl never evaluates them and
+# the headless-LibreOffice path is unavailable in CI, so a wrong range or an
+# off-by-one in the COUNTIF/COUNTIFS construction would pass silently. The
+# helpers below evaluate the bounded set of formula shapes the Review sheet
+# actually emits (COUNTIF / COUNTIFS / COUNTBLANK / IFERROR-division) against the
+# real tracker cells, so the summary's *computed* numbers are asserted, not just
+# its text.
+
+_RANGE = re.compile(r"'([^']+)'!([A-Z]+)(\d+):([A-Z]+)(\d+)")
+
+
+def _resolve_range(wb, ref):
+    sheet, c1, r1, _c2, r2 = _RANGE.fullmatch(ref).groups()
+    ws = wb[sheet]
+    return [ws[f"{c1}{r}"].value for r in range(int(r1), int(r2) + 1)]
+
+
+def _eval_count(wb, call):
+    name, args = call
+    if name == "COUNTBLANK":
+        return sum(1 for v in _resolve_range(wb, args[0])
+                   if v is None or v == "")
+    if name == "COUNTIF":
+        target = args[1].strip('"')
+        return sum(1 for v in _resolve_range(wb, args[0]) if v == target)
+    if name == "COUNTIFS":
+        rng1, crit1, rng2, crit2 = args
+        c1, c2 = crit1.strip('"'), crit2.strip('"')
+        return sum(1 for a, b in zip(_resolve_range(wb, rng1),
+                                     _resolve_range(wb, rng2), strict=True)
+                   if a == c1 and b == c2)
+    raise AssertionError(f"unsupported function {name}")
+
+
+_CALL = re.compile(r"(COUNTIFS|COUNTIF|COUNTBLANK)\(([^()]*)\)")
+
+
+def eval_formula(wb, formula):
+    """Evaluate a Review-sheet summary formula against the live workbook."""
+    expr = str(formula).lstrip("=")
+    # Reduce every COUNT* call to its integer result (COUNTIFS before COUNTIF).
+    while True:
+        m = _CALL.search(expr)
+        if not m:
+            break
+        args = [a.strip() for a in m.group(2).split(",")]
+        # Re-pair (range, "criterion") tokens since criteria contain no commas.
+        expr = expr[:m.start()] + str(_eval_count(wb, (m.group(1), args))) \
+            + expr[m.end():]
+    ie = re.fullmatch(r"IFERROR\((.*),(\d+)\)", expr)
+    if ie:
+        try:
+            return eval(ie.group(1))  # noqa: S307 - bounded numeric expr
+        except ZeroDivisionError:
+            return int(ie.group(2))
+    return eval(expr)  # noqa: S307 - bounded numeric expr
+
+
+def test_review_formulas_compute_correct_values(samples, tmp_path):
+    rows = [
+        RequirementRow(ref="4.1", section="Contract", requirement="a", mandatory="M"),
+        RequirementRow(ref="5.1", section="Security", requirement="b", mandatory="M"),
+        RequirementRow(ref="5.3", section="Access", requirement="c", mandatory="M"),
+        RequirementRow(ref="7.1", section="Support", requirement="d", mandatory="O"),
+        RequirementRow(ref="10.1", section="TCO", requirement="e", mandatory="O"),
+        RequirementRow(ref="11.1", section="Compliance", requirement="f", mandatory="M"),
+    ]
+    out = write_checklist(INFO, rows, tmp_path / "eval.xlsx", samples["template"])
+    wb = load_workbook(out)
+    tracker = wb["Compliance Tracker"]
+    status_letter, header_row = _status_column_letter(tracker)
+
+    # Fill a known distribution into the Vendor Status column:
+    #   mandatory 5.1 -> Non-Compliant (a review blocker), 10.1 -> Not Applicable,
+    #   7.1 left blank (awaiting), the remaining three Compliant.
+    status_by_ref = {
+        "4.1": "Compliant", "5.1": "Non-Compliant", "5.3": "Compliant",
+        "7.1": None, "10.1": "Not Applicable", "11.1": "Compliant",
+    }
+    ref_col = next(c.column for c in tracker[header_row]
+                   if c.value and str(c.value).strip() == "Ref")
+    for r in range(header_row + 1, header_row + 1 + len(rows)):
+        ref = str(tracker.cell(r, ref_col).value)
+        tracker[f"{status_letter}{r}"] = status_by_ref[ref]
+
+    ws = wb[REVIEW_SHEET]
+    summary = {ws.cell(r, 1).value: ws.cell(r, 2).value
+               for r in range(1, ws.max_row + 1) if ws.cell(r, 1).value}
+
+    assert eval_formula(wb, summary["Compliant"]) == 3
+    assert eval_formula(wb, summary["Non-Compliant"]) == 1
+    assert eval_formula(wb, summary["Not Applicable"]) == 1
+    assert eval_formula(wb, summary["Awaiting vendor response"]) == 1
+    assert eval_formula(
+        wb, summary["Mandatory non-compliant (review blocker)"]) == 1
+    # Compliance rate = Compliant / (total - Not Applicable) = 3 / (6 - 1).
+    assert eval_formula(
+        wb, summary["Compliance rate (of applicable)"]) == 3 / 5
+
+
+def test_review_compliance_rate_is_divide_by_zero_safe(samples, tmp_path):
+    out = write_checklist(INFO, ROWS, tmp_path / "empty.xlsx", samples["template"])
+    wb = load_workbook(out)
+    # Vendor hasn't responded: all statuses blank. Marking every row Not
+    # Applicable drives the rate denominator to zero; IFERROR must yield 0.
+    tracker = wb["Compliance Tracker"]
+    status_letter, header_row = _status_column_letter(tracker)
+    for r in range(header_row + 1, header_row + 1 + len(ROWS)):
+        tracker[f"{status_letter}{r}"] = "Not Applicable"
+    ws = wb[REVIEW_SHEET]
+    summary = {ws.cell(r, 1).value: ws.cell(r, 2).value
+               for r in range(1, ws.max_row + 1) if ws.cell(r, 1).value}
+    assert eval_formula(wb, summary["Compliance rate (of applicable)"]) == 0

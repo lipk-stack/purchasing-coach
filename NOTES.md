@@ -2,6 +2,55 @@
 
 Reference this file at the start of each routine run.
 
+## Iteration 24 — 2026-06-18 (verify Review-sheet formulas by value; granularity audit)
+
+Routine run. Started healthy: **196 tests pass**, `ruff` clean, **CI green on
+the real GitHub Actions runner** for `main @ 95e5dbb` (verified via the GitHub
+MCP). Drive `XXEON_IT_Procurement_Guideline.docx` + `TENDER_TEMPLATE.xlsx` both
+still `modifiedTime 2026-06-10T13:05:11Z` — **unchanged**, no sample refresh
+needed. **main sync:** on entry my local `origin/main` ref was stale at
+`95b5f6b`; a fetch fast-forwarded it to `95e5dbb`, which already contains all of
+iteration 23's work (`main` == the latest committed state). This run's dev
+branch `claude/nice-ride-fsrrlc` is a fresh name not yet on origin (the work
+lives on `main` and on the older `claude/nice-ride-gu904i` mirror).
+
+**Granularity audit (the task's core ask — and a deliberate *no-change*
+decision worth recording so future runs don't re-litigate it).** The task asks
+for "granular clauses and requirements ... derived from the guideline in
+detail." Confirmed section-level coverage is already complete: every normative
+section is represented — 4/5/11 always-on (`CORE_SECTIONS`), 6/7/8/9/10/12/13
+answer-driven — and a real SaaS run yields ~191 atomic rows, a hardware run
+~181, with the right sections included/excluded (SaaS omits 8; commodity
+hardware omits 9/13). The one remaining finer-grained idea is **within-sentence
+splitting** (e.g. clause 5.3's password policy bundles five separately-attestable
+requirements into one row). I evaluated this against **all 57 compound normative
+sentences in the real guideline** and found **only 5.3 is a genuine list of
+parallel obligations** — every other case is an *elaboration* ("including X, Y,
+Z"), a *shared-object verb list* ("develop, maintain and test a plan"), a
+*scope/aspect list* ("coverage of response times, availability, ..."), or a
+*temporal enumeration* ("at 3, 6 and 12-month intervals"). A general splitter
+would therefore be almost all false-positives and would **regress** checklist
+quality, and `atomic_requirements`' existing sentence-level stop is the correct,
+deliberate design (it explicitly preserves context). **Decision: do NOT add
+within-sentence splitting.** (See follow-up 14.)
+
+**Change shipped — Review & Approval formulas verified by computed value.**
+The Review sheet's live summary uses `COUNTIF`/`COUNTIFS`/`COUNTBLANK` over the
+tracker plus a divide-by-zero-safe `IFERROR` compliance rate. Existing tests
+asserted only the formula *strings*; openpyxl never evaluates them, so a wrong
+range or off-by-one would ship silently. I tried to validate via headless
+LibreOffice (follow-up 11) — `soffice` 24.2.7.2 **is installed** but
+`--convert-to` fails to load **any** xlsx here (confirmed against a trivial
+openpyxl file and the unmodified template, not just our output), so the
+real-engine render check stays blocked in-sandbox. Closed the gap the
+deterministic way instead: +2 tests in `tests/test_excel.py` fill the tracker
+with a known status distribution and **evaluate the actual generated formulas
+against the real cells** (a small bounded evaluator for exactly the four formula
+shapes the sheet emits), asserting the reviewer sees the correct
+compliant/non-compliant/mandatory-blocker counts and a 0% (not `#DIV/0!`) rate.
+Mutation-checked the evaluator has teeth. **198 tests pass**, ruff clean,
+CHANGELOG `Added` entry.
+
 ## Iteration 23 — 2026-06-17 (close the SBOM coverage gap; routine health check)
 
 Routine run. Started healthy: 194 tests pass, `ruff` clean, **CI green on the
@@ -1030,13 +1079,19 @@ Compliance Tracker) from the template, docx/md/txt loaders, offline tests.
    the web sandbox (Playwright/Puppeteer download hosts are blocked) and we
    don't want node_modules in the repo. If we later want this in CI, either
    vendor a tiny jsdom-free DOM stub or run it where a browser is available.
-11. **Review & Approval sheet polish — DONE (iter 15).** Conditional formatting
-    turns the *Mandatory non-compliant* cell red when > 0 (green at 0); a live
-    compliance-rate % row was added; and the web finish note now reflects the
-    mandatory count + the review-sheet summary. Remaining check: confirm the
-    formulas + conditional formatting render in **real Excel/LibreOffice** (only
-    openpyxl reload is exercised in-sandbox). Other nice-to-have: a data-bar or
-    icon-set on the compliance-rate cell.
+11. **Review & Approval sheet polish — DONE (iter 15); formula values now
+    verified (iter 24).** Conditional formatting turns the *Mandatory
+    non-compliant* cell red when > 0 (green at 0); a live compliance-rate % row
+    was added; and the web finish note reflects the mandatory count + the
+    review-sheet summary. Iter 24 added tests that **evaluate** the generated
+    `COUNTIF`/`COUNTIFS`/`COUNTBLANK`/`IFERROR` formulas against a filled tracker
+    (computed values, not just strings). The only remaining piece — confirming
+    they render in **real Excel/LibreOffice** — is **blocked in this sandbox**:
+    `soffice` 24.2.7.2 is installed but `--convert-to` fails to load *any* xlsx
+    here (verified against a trivial openpyxl file + the unmodified template), so
+    it's a container limitation, not a file defect. Try on a machine where
+    LibreOffice conversion works, or just open a generated workbook in Excel.
+    Other nice-to-have: a data-bar or icon-set on the compliance-rate cell.
 10. **Live UI test against the user's LM Studio.** The web sandbox cannot
     reach the user's machine localhost (LM Studio at :1234 is isolated —
     verified 2026-06-13), so stress testing used an in-container streaming
@@ -1064,6 +1119,21 @@ Compliance Tracker) from the template, docx/md/txt loaders, offline tests.
     (`B027` — add `@abstractmethod` or document), and a `raise ... from` in a
     backend (`B904`). All low-risk; left out of pass 1 to keep the first CI run
     green with minimal churn.
+14. **Within-sentence requirement splitting — evaluated and DECLINED (iter
+    24).** Considered splitting compound *sentences* into per-obligation rows so
+    a vendor can't mark "Compliant" while meeting only part of a bundled clause
+    (the motivating case is clause 5.3's password policy: 8-char minimum,
+    complexity, lockout, periodic change, history — five attestable items in one
+    row). Audited **all 57 compound normative sentences** in the real guideline:
+    only 5.3 is a genuine parallel-obligation list; the rest are elaborations
+    ("including X, Y, Z"), shared-object verb lists, scope/aspect lists, or
+    temporal enumerations, so a general splitter would over-fragment and regress
+    quality with ~1/57 precision. **Decided against it** — `atomic_requirements`
+    correctly stops at sentence level. Only revisit if a *future* guideline is
+    loaded whose mandatory clauses routinely pack independent obligations into
+    single sentences, and even then prefer a high-precision, elaboration-aware
+    rule validated against that document — not a blind comma-splitter. Pairs
+    naturally with follow-up 1 (a live quality review would confirm the call).
 
 ## Loop progress (production-quality, target ≥10 passes)
 

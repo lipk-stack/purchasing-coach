@@ -9,6 +9,16 @@ to follow [Semantic Versioning](https://semver.org/).
 Production-quality hardening pass.
 
 ### Added
+- **Review & Approval formulas are now verified by computed value, not just
+  text.** The summary's live counts (`COUNTIF`/`COUNTIFS`/`COUNTBLANK` over the
+  Compliance Tracker, and the divide-by-zero-safe `IFERROR` compliance rate)
+  were previously asserted only as formula *strings* — a wrong cell range or an
+  off-by-one would have shipped silently, and the headless-LibreOffice render
+  check is unavailable in CI. New tests fill the tracker with a known status
+  distribution and evaluate the actual generated formulas against the real
+  cells, asserting the reviewer sees the correct compliant / non-compliant /
+  mandatory-blocker counts and a 0% (not `#DIV/0!`) rate before any vendor
+  response.
 - **SBOM declaration now covered by the checklist (closes a coverage gap).**
   Section 13.1 (the Software Bill of Materials declaration) is a granular,
   mandatory vendor obligation referenced from core section 4.3, but it lives in
