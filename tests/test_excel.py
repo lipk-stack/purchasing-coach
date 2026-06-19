@@ -142,6 +142,16 @@ def test_review_sheet_compliance_rate_and_blocker_formatting(samples, tmp_path):
     assert '"Not Applicable"' in rate_cell.value
     assert rate_cell.number_format == "0.0%"
 
+    # The rate cell carries a green data-bar gauge fixed to a 0%..100% scale so
+    # the bar length means the same on every workbook.
+    rate_target = f"B{rate_row}"
+    data_bars = [r for rng, rules in ws.conditional_formatting._cf_rules.items()
+                 for r in rules
+                 if r.type == "dataBar" and rate_target in str(rng.sqref)]
+    assert len(data_bars) == 1
+    cfvo = data_bars[0].dataBar.cfvo
+    assert [(c.type, c.val) for c in cfvo] == [("num", 0.0), ("num", 1.0)]
+
     # The mandatory non-compliant cell is flagged by conditional formatting:
     # red when > 0 (a review blocker), green at 0.
     blocker_row = rows["Mandatory non-compliant (review blocker)"]

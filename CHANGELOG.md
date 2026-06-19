@@ -9,6 +9,11 @@ to follow [Semantic Versioning](https://semver.org/).
 Production-quality hardening pass.
 
 ### Added
+- **Compliance-rate gauge on the Review & Approval sheet.** The live compliance
+  rate now carries a green data bar fixed to a 0%–100% scale, so a reviewer
+  sees the submission's standing at a glance and the bar length means the same
+  on every workbook. Updates live with the underlying `IFERROR` rate as the
+  vendor fills the Vendor Status column.
 - **Review & Approval formulas are now verified by computed value, not just
   text.** The summary's live counts (`COUNTIF`/`COUNTIFS`/`COUNTBLANK` over the
   Compliance Tracker, and the divide-by-zero-safe `IFERROR` compliance rate)

@@ -2,6 +2,45 @@
 
 Reference this file at the start of each routine run.
 
+## Iteration 25 — 2026-06-19 (verified-health run; compliance-rate gauge)
+
+Routine run. Started healthy and confirmed it end-to-end. **198 tests pass, 2
+skipped; `ruff` clean; CI green on the real GitHub Actions runner** for
+`main @ 7dd34fb` (the iter-21 UI-redesign PR #1 merge — verified via the GitHub
+MCP). **main sync:** on entry my local `main`/`origin/main` refs were stale at
+`95b5f6b`; a fetch showed `origin/main == origin/claude/nice-ride-wbs88t == HEAD
+== 7dd34fb`, i.e. main already holds all committed work (the recurring stale-
+local-ref pattern from iters 15/23/24, not a real drift). Drive
+`XXEON_IT_Procurement_Guideline.docx` + `TENDER_TEMPLATE.xlsx` both still
+`modifiedTime 2026-06-10T13:05:11Z` — **unchanged**, no sample refresh needed
+(follow-up 4/5). This run's dev branch is `claude/nice-ride-wbs88t`.
+
+**End-to-end product verification (the task's core ask, re-confirmed).** Ran a
+real `build_checklist` against the sample guideline with the deterministic
+template backend: a SaaS item → **191 atomic rows** (sections 4,5,6,7,9,10,11,
+12,13; correctly omits hardware §8), commodity hardware → **181 rows**
+(sections 4,5,6,7,8,10,11,12; correctly omits software §9 and SBOM §13) — both
+match iter-24's recorded figures, so granularity and answer-driven section
+coverage are intact. Workbook structure matches the user's real template
+columns (Seq, Ref, Section, Requirement, M/O, Vendor Status, Vendor Remarks)
+plus the Tender Information and Review & Approval sheets. **M/O classification
+audited and confirmed correct:** 190 M / 1 O on the SaaS run; the single `O` is
+the genuine recommendation (clause 10.1 "comparative TCO analysis ... *should*
+be provided *where feasible*"), and `classify_obligation`'s strong-beats-weak
+rule keeps real mandates ("must be defined", NDAs "are mandatory") as M. No
+defect found — the substantive coverage/granularity work (iters 20–24) holds.
+
+**Change shipped — compliance-rate gauge (follow-up 11 nice-to-have).** Added a
+green `DataBarRule` to the Review sheet's compliance-rate cell, fixed to a
+0%–100% scale (`start/end_type="num"`, 0→1) so the bar length is comparable
+across workbooks and updates live with the `IFERROR` rate. Low-risk, fully
+testable in-sandbox; extended `test_review_sheet_compliance_rate_and_blocker_
+formatting` to assert exactly one data bar on the rate cell with the fixed
+0.0→1.0 cfvo. **198 tests pass**, ruff clean, CHANGELOG `Added` entry. (The
+remaining follow-up-11 piece — confirming formulas/formatting render in *real*
+Excel/LibreOffice — stays blocked: `soffice` 24.2.7.2 still can't `--convert-to`
+any xlsx in this container.)
+
 ## Iteration 24 — 2026-06-18 (verify Review-sheet formulas by value; granularity audit)
 
 Routine run. Started healthy: **196 tests pass**, `ruff` clean, **CI green on
@@ -1091,7 +1130,9 @@ Compliance Tracker) from the template, docx/md/txt loaders, offline tests.
     here (verified against a trivial openpyxl file + the unmodified template), so
     it's a container limitation, not a file defect. Try on a machine where
     LibreOffice conversion works, or just open a generated workbook in Excel.
-    Other nice-to-have: a data-bar or icon-set on the compliance-rate cell.
+    The data-bar nice-to-have is **DONE (iter 25)**: the compliance-rate cell
+    now carries a green `DataBarRule` on a fixed 0%–100% scale (test-asserted).
+    An icon-set on the rate cell remains an optional further nicety.
 10. **Live UI test against the user's LM Studio.** The web sandbox cannot
     reach the user's machine localhost (LM Studio at :1234 is isolated —
     verified 2026-06-13), so stress testing used an in-container streaming

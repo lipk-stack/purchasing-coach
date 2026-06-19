@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from openpyxl import Workbook, load_workbook
-from openpyxl.formatting.rule import CellIsRule
+from openpyxl.formatting.rule import CellIsRule, DataBarRule
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
@@ -210,14 +210,25 @@ def _add_review_sheet(wb, header_row: int, last_row: int,
     ws["B3"] = "(updates live as the vendor fills in Vendor Status)"
     row = 4
     blocker_row = None
+    rate_row = None
     for label, value in summary:
         ws.cell(row=row, column=1, value=label).font = label_font
         cell = ws.cell(row=row, column=2, value=value)
         if label == rate_label:
             cell.number_format = "0.0%"
+            rate_row = row
         if label == blocker_label:
             blocker_row = row
         row += 1
+
+    # Give the compliance rate an at-a-glance gauge: a green data bar that fills
+    # the cell proportionally from 0% to 100% (fixed scale, so the bar means the
+    # same on every workbook). Updates live with the underlying IFERROR rate.
+    if rate_row is not None:
+        ws.conditional_formatting.add(
+            f"B{rate_row}",
+            DataBarRule(start_type="num", start_value=0,
+                        end_type="num", end_value=1, color="63BE7B"))
 
     # Make the go/no-go figure unmissable: red when any mandatory requirement
     # is non-compliant, green once it clears to zero. Updates live with the
