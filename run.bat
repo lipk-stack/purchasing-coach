@@ -12,7 +12,7 @@ REM
 REM If purchasing-coach-embedded.pyz exists (built with --with-model), it is
 REM preferred because it bundles an on-device SLM — no external server needed.
 
-setlocal EnableDelayedExpansion
+setlocal EnableExtensions DisableDelayedExpansion
 cd /d "%~dp0"
 
 echo.
@@ -30,31 +30,51 @@ if errorlevel 1 (
     exit /b 1
 )
 
-REM Prefer the embedded build (bundles model + llama-cpp-python), fall back
-REM to the lightweight standard build.
+REM Prefer the embedded build (bundles model + llama-cpp-python), then the
+REM lightweight standard build. If neither exists, run from source.
 set "PYZ=.\dist\purchasing-coach-embedded.pyz"
-if exist "!PYZ!" (
-    echo  [INFO] Using embedded build (bundled SLM).
-) else (
-    set "PYZ=.\dist\purchasing-coach.pyz"
-    if not exist "!PYZ!" (
-        echo  [ERROR] No build found. Run:
-        echo          python scripts\build_portable.py --with-model
-        pause
-        exit /b 1
-    )
-    echo  [INFO] Using standard build.
-)
+if exist "%PYZ%" goto found_embedded
+set "PYZ=.\dist\purchasing-coach.pyz"
+if exist "%PYZ%" goto found_standard
+set "PYZ="
+echo  [INFO] No portable build found; running from source.
+goto after_app_choice
 
-if "%GUIDELINE%"=="" set "GUIDELINE=.\samples\XXEON_IT_Procurement_Guideline.docx"
-if "%TEMPLATE%"==""  set "TEMPLATE=.\samples\TENDER_TEMPLATE.xlsx"
+:found_embedded
+echo  [INFO] Using embedded build - bundled SLM.
+goto after_app_choice
+
+:found_standard
+echo  [INFO] Using standard build.
+
+:after_app_choice
+
+if not defined GUIDELINE set "GUIDELINE=.\samples\XXEON_IT_Procurement_Guideline.docx"
+if not defined TEMPLATE  set "TEMPLATE=.\samples\TENDER_TEMPLATE.xlsx"
 
 REM Default to the browser UI when no extra flags are passed.
-if "%~1"=="" (
-    python "!PYZ!" --guideline "%GUIDELINE%" --template "%TEMPLATE%" --web
-) else (
-    python "!PYZ!" --guideline "%GUIDELINE%" --template "%TEMPLATE%" %*
-)
+if "%~1"=="" goto launch_default
+goto launch_args
 
+:launch_default
+if defined PYZ goto launch_pyz_default
+python -m coach --guideline "%GUIDELINE%" --template "%TEMPLATE%" --web
+goto finish
+
+:launch_pyz_default
+python "%PYZ%" --guideline "%GUIDELINE%" --template "%TEMPLATE%" --web
+goto finish
+
+:launch_args
+if defined PYZ goto launch_pyz_args
+python -m coach --guideline "%GUIDELINE%" --template "%TEMPLATE%" %*
+goto finish
+
+:launch_pyz_args
+python "%PYZ%" --guideline "%GUIDELINE%" --template "%TEMPLATE%" %*
+goto finish
+
+:finish
+set "APP_RC=%ERRORLEVEL%"
 pause
-endlocal
+endlocal & exit /b %APP_RC%
