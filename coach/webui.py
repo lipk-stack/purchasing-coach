@@ -403,30 +403,32 @@ PAGE = r"""<!DOCTYPE html>
 <style>
 /* ===== DESIGN TOKENS ===== */
 :root{
-  --bg-0:#0b0e14;--bg-1:#111520;--bg-2:#181d2a;--bg-3:#1f2637;--bg-4:#272f42;
-  --tx-0:#e8ecf4;--tx-1:#b0b8c9;--tx-2:#828ca8;--tx-3:#4a5270;
-  --ac:#4f8ff7;--ac-2:#6ba3ff;--ac-bg:rgba(79,143,247,.12);
-  --green:#34d399;--green-bg:rgba(52,211,153,.12);
-  --amber:#fbbf24;--amber-bg:rgba(251,191,36,.12);
-  --red:#f87171;--red-bg:rgba(248,113,113,.12);
-  --border:rgba(255,255,255,.06);--border-2:rgba(255,255,255,.1);
-  --shadow:0 2px 8px rgba(0,0,0,.4);--shadow-lg:0 8px 32px rgba(0,0,0,.5);
-  --r-sm:6px;--r-md:10px;--r-lg:16px;--r-xl:20px;
-  --sp-1:4px;--sp-2:8px;--sp-3:12px;--sp-4:16px;--sp-5:24px;--sp-6:32px;
+  --bg-0:#080b0d;--bg-1:#0f1417;--bg-2:#151c20;--bg-3:#1d272c;--bg-4:#263238;
+  --panel:#11171b;--panel-2:#172027;--panel-3:#202a31;
+  --tx-0:#f2f5f2;--tx-1:#c4ccc4;--tx-2:#8f9b95;--tx-3:#59665f;
+  --ac:#21c6a8;--ac-2:#3f7df4;--ac-ink:#05261f;--ac-bg:rgba(33,198,168,.14);
+  --green:#35d07f;--green-bg:rgba(53,208,127,.13);
+  --amber:#f3b340;--amber-bg:rgba(243,179,64,.13);
+  --red:#ff6b6b;--red-bg:rgba(255,107,107,.14);
+  --border:rgba(228,238,232,.09);--border-2:rgba(228,238,232,.16);
+  --shadow:0 10px 28px rgba(0,0,0,.26);--shadow-lg:0 18px 48px rgba(0,0,0,.36);
+  --r-sm:4px;--r-md:6px;--r-lg:8px;--r-xl:8px;
+  --sp-1:4px;--sp-2:8px;--sp-3:12px;--sp-4:16px;--sp-5:24px;--sp-6:32px;--sp-7:44px;
   --font:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
   --mono:ui-monospace,'SF Mono','Cascadia Code','Fira Code',Consolas,monospace;
   --tr-fast:150ms cubic-bezier(.4,0,.2,1);--tr-norm:250ms cubic-bezier(.4,0,.2,1);
-  --sidebar-w:240px;--topbar-h:52px;
+  --sidebar-w:268px;--topbar-h:64px;
 }
 [data-theme="light"]{
-  --bg-0:#f0f2f7;--bg-1:#f7f8fb;--bg-2:#ffffff;--bg-3:#f0f2f7;--bg-4:#e4e7ef;
-  --tx-0:#1a1f33;--tx-1:#4a5270;--tx-2:#646d8c;--tx-3:#b0b8c9;
-  --ac:#2e6fd1;--ac-2:#4f8ff7;--ac-bg:rgba(46,111,209,.08);
-  --green:#047857;--green-bg:rgba(5,150,105,.08);
-  --amber:#d97706;--amber-bg:rgba(217,119,6,.08);
-  --red:#dc2626;--red-bg:rgba(220,38,38,.08);
-  --border:rgba(0,0,0,.06);--border-2:rgba(0,0,0,.1);
-  --shadow:0 1px 3px rgba(0,0,0,.08);--shadow-lg:0 4px 16px rgba(0,0,0,.1);
+  --bg-0:#eef2f0;--bg-1:#f7f9f8;--bg-2:#ffffff;--bg-3:#edf2f0;--bg-4:#dce5e1;
+  --panel:#ffffff;--panel-2:#f6f8f7;--panel-3:#eaf0ed;
+  --tx-0:#17211c;--tx-1:#3d4a44;--tx-2:#65726c;--tx-3:#9aa8a1;
+  --ac:#087f6c;--ac-2:#2e66d2;--ac-ink:#f4fffb;--ac-bg:rgba(8,127,108,.1);
+  --green:#087a47;--green-bg:rgba(8,122,71,.1);
+  --amber:#a65f00;--amber-bg:rgba(166,95,0,.1);
+  --red:#c73535;--red-bg:rgba(199,53,53,.1);
+  --border:rgba(16,31,24,.09);--border-2:rgba(16,31,24,.16);
+  --shadow:0 10px 24px rgba(23,33,28,.08);--shadow-lg:0 18px 48px rgba(23,33,28,.12);
 }
 /* ===== RESET & BASE ===== */
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
@@ -453,80 +455,115 @@ textarea:focus-visible,select:focus-visible,[contenteditable=true]:focus-visible
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;
   overflow:hidden;clip:rect(0,0,0,0);border:0;}
 /* ===== LAYOUT ===== */
-.app{display:flex;flex:1;overflow:hidden;}
-.sidebar{width:var(--sidebar-w);background:var(--bg-1);border-right:1px solid var(--border);
+.app{display:flex;flex:1;overflow:hidden;background:
+  linear-gradient(180deg,var(--bg-0) 0%,var(--bg-1) 100%);}
+.sidebar{width:var(--sidebar-w);background:var(--panel);border-right:1px solid var(--border);
   display:flex;flex-direction:column;transition:width var(--tr-norm);flex-shrink:0;overflow:hidden;z-index:10;}
-.sidebar.collapsed{width:56px;}
+.sidebar.collapsed{width:68px;}
 .sidebar.collapsed .nav-label,.sidebar.collapsed .session-list,.sidebar.collapsed .sidebar-header span{display:none;}
 .sidebar.collapsed .sidebar-header{justify-content:center;}
-.sidebar.collapsed .nav-item{justify-content:center;padding:var(--sp-3);}
+.sidebar.collapsed .nav-item{justify-content:center;padding:var(--sp-3);width:44px;margin:4px auto;}
 .main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0;}
 /* ===== TOPBAR ===== */
-.topbar{height:var(--topbar-h);background:var(--bg-1);border-bottom:1px solid var(--border);
-  display:flex;align-items:center;padding:0 var(--sp-4);gap:var(--sp-3);flex-shrink:0;}
-.topbar .menu-btn{width:36px;height:36px;border-radius:var(--r-sm);display:grid;place-items:center;
-  font-size:18px;transition:background var(--tr-fast);}
+.topbar{height:var(--topbar-h);background:color-mix(in srgb,var(--panel) 86%,transparent);
+  border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 var(--sp-5);
+  gap:var(--sp-3);flex-shrink:0;}
+.topbar .menu-btn{width:40px;height:40px;border-radius:var(--r-md);display:grid;place-items:center;
+  font-size:18px;transition:background var(--tr-fast),transform var(--tr-fast);}
 .topbar .menu-btn:hover{background:var(--bg-3);}
-.topbar .brand{display:flex;align-items:center;gap:var(--sp-2);font-weight:700;font-size:15px;}
-.topbar .brand .logo{width:28px;height:28px;border-radius:var(--r-sm);
-  background:linear-gradient(135deg,var(--ac),var(--ac-2));color:#fff;
-  display:grid;place-items:center;font-size:14px;font-weight:800;}
+.topbar .menu-btn:active{transform:translateY(1px);}
+.topbar .brand{display:flex;align-items:center;gap:var(--sp-3);font-weight:750;font-size:15px;}
+.topbar .brand .logo,.brand-mark{width:34px;height:34px;border-radius:var(--r-md);
+  background:linear-gradient(135deg,var(--ac) 0%,var(--ac-2) 100%);color:#fff;
+  display:grid;place-items:center;font-size:13px;font-weight:850;letter-spacing:.04em;}
+.brand-stack{display:flex;flex-direction:column;line-height:1.15;}
+.brand-stack small{color:var(--tx-2);font-size:11px;font-weight:600;letter-spacing:.02em;}
 .pill{display:inline-flex;align-items:center;gap:var(--sp-1);padding:3px 10px;
-  border-radius:20px;font-size:11px;font-weight:600;letter-spacing:.02em;}
+  border-radius:999px;font-size:11px;font-weight:700;letter-spacing:.02em;border:1px solid transparent;}
 .pill.ok{background:var(--green-bg);color:var(--green);}
 .pill.err{background:var(--red-bg);color:var(--red);}
 .pill.info{background:var(--ac-bg);color:var(--ac);}
 .pill .dot{width:6px;height:6px;border-radius:50%;background:currentColor;}
+#guidelinePill{max-width:360px;}
+#guidelineLabel{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .topbar .spacer{flex:1;}
 /* ===== SIDEBAR NAV ===== */
-.sidebar-header{padding:var(--sp-4);display:flex;align-items:center;gap:var(--sp-2);
-  font-weight:700;font-size:13px;color:var(--tx-2);text-transform:uppercase;letter-spacing:.06em;}
-.nav-item{display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-2) var(--sp-4);
-  margin:2px var(--sp-2);width:calc(100% - var(--sp-4));text-align:left;border-radius:var(--r-sm);
-  color:var(--tx-1);font-size:13px;font-weight:500;transition:all var(--tr-fast);cursor:pointer;}
+.sidebar-header{padding:var(--sp-5) var(--sp-4) var(--sp-4);display:flex;align-items:center;gap:var(--sp-3);
+  font-weight:800;font-size:12px;color:var(--tx-1);text-transform:uppercase;letter-spacing:.08em;}
+.nav-item{display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-3) var(--sp-4);
+  margin:4px var(--sp-3);width:calc(100% - 24px);text-align:left;border-radius:var(--r-md);
+  color:var(--tx-1);font-size:13px;font-weight:700;transition:all var(--tr-fast);cursor:pointer;
+  min-height:44px;border:1px solid transparent;}
 .nav-item:hover{background:var(--bg-3);color:var(--tx-0);}
-.nav-item.active,.nav-item[aria-current=page]{background:var(--ac-bg);color:var(--ac);font-weight:600;}
-.nav-item .icon{width:20px;text-align:center;font-size:15px;flex-shrink:0;}
-.session-list{flex:1;overflow-y:auto;padding:var(--sp-2) 0;border-top:1px solid var(--border);margin-top:var(--sp-2);}
-.session-item{display:flex;align-items:center;gap:var(--sp-2);padding:var(--sp-2) var(--sp-4);
+.nav-item.active,.nav-item[aria-current=page]{background:var(--ac-bg);color:var(--ac);border-color:color-mix(in srgb,var(--ac) 30%,transparent);}
+.nav-item .icon{width:22px;text-align:center;font-size:15px;flex-shrink:0;}
+.session-list{flex:1;overflow-y:auto;padding:var(--sp-3) 0;border-top:1px solid var(--border);margin-top:var(--sp-3);}
+.session-item{display:flex;align-items:center;gap:var(--sp-2);padding:var(--sp-1) var(--sp-3);
   margin:1px var(--sp-2);width:calc(100% - var(--sp-4));text-align:left;border-radius:var(--r-sm);
   color:var(--tx-2);font-size:12px;cursor:pointer;transition:background var(--tr-fast);}
 .session-item:hover{background:var(--bg-3);color:var(--tx-0);}
 .session-open{flex:1;display:flex;align-items:center;gap:var(--sp-2);color:inherit;
-  font-size:12px;text-align:left;overflow:hidden;padding:0;border-radius:var(--r-sm);min-width:0;}
+  font-size:12px;text-align:left;overflow:hidden;padding:var(--sp-2) 0;border-radius:var(--r-sm);min-width:0;min-height:36px;}
 .session-item .title{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .session-item .count{font-size:10px;color:var(--tx-2);flex-shrink:0;}
-.session-item .del{opacity:0;font-size:14px;color:var(--red);transition:opacity var(--tr-fast);
-  padding:0 var(--sp-1);border-radius:var(--r-sm);}
+.session-item .del{opacity:0;font-size:16px;color:var(--red);transition:opacity var(--tr-fast);
+  width:32px;height:32px;border-radius:var(--r-sm);display:grid;place-items:center;flex-shrink:0;}
 .session-item:hover .del,.session-item:focus-within .del,.session-item .del:focus-visible{opacity:1;}
 /* ===== CONTENT VIEWS ===== */
-.view{display:none;flex:1;overflow-y:auto;padding:var(--sp-5);}
+.view{display:none;flex:1;overflow-y:auto;padding:var(--sp-6);}
 .view.active{display:flex;flex-direction:column;}
-.view-title{font-size:22px;font-weight:700;margin-bottom:var(--sp-5);color:var(--tx-0);}
+.view-head{display:flex;align-items:flex-end;justify-content:space-between;gap:var(--sp-4);margin-bottom:var(--sp-5);}
+.view-title{font-size:28px;font-weight:850;letter-spacing:-.02em;color:var(--tx-0);line-height:1.05;margin:0;}
+.view-subtitle{max-width:760px;color:var(--tx-2);font-size:14px;margin-top:var(--sp-2);}
+.view-actions{display:flex;gap:var(--sp-2);flex-wrap:wrap;align-items:center;}
 /* ===== DASHBOARD ===== */
-.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:var(--sp-4);margin-bottom:var(--sp-5);}
-.metric-card{background:var(--bg-2);border:1px solid var(--border);border-radius:var(--r-lg);
-  padding:var(--sp-5);display:flex;flex-direction:column;gap:var(--sp-1);}
-.metric-card .label{font-size:12px;font-weight:600;color:var(--tx-2);text-transform:uppercase;letter-spacing:.04em;}
-.metric-card .value{font-size:32px;font-weight:800;color:var(--tx-0);line-height:1.1;}
+.dashboard-hero{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(280px,.8fr);gap:var(--sp-4);
+  align-items:stretch;margin-bottom:var(--sp-5);}
+.hero-panel{background:linear-gradient(135deg,var(--panel) 0%,var(--panel-2) 58%,color-mix(in srgb,var(--ac) 18%,var(--panel)) 100%);
+  border:1px solid var(--border);border-radius:var(--r-lg);padding:var(--sp-6);
+  box-shadow:var(--shadow);position:relative;overflow:hidden;}
+.hero-panel::after{content:"";position:absolute;left:0;right:0;bottom:0;height:4px;
+  background:linear-gradient(90deg,var(--ac),var(--amber),var(--ac-2));}
+.kicker{display:inline-flex;align-items:center;gap:var(--sp-2);font-size:11px;font-weight:850;
+  letter-spacing:.12em;text-transform:uppercase;color:var(--ac);margin-bottom:var(--sp-3);}
+.hero-panel h3{font-size:32px;line-height:1.05;letter-spacing:-.03em;max-width:760px;margin:0 0 var(--sp-3);}
+.hero-panel p{max-width:760px;color:var(--tx-1);font-size:15px;margin-bottom:var(--sp-5);}
+.quick-grid{display:grid;grid-template-columns:1fr;gap:var(--sp-3);}
+.quick-card{background:var(--panel);border:1px solid var(--border);border-radius:var(--r-lg);
+  padding:var(--sp-4);display:flex;flex-direction:column;justify-content:space-between;gap:var(--sp-3);min-height:126px;}
+.quick-card strong{font-size:14px;color:var(--tx-0);}
+.quick-card span{font-size:12px;color:var(--tx-2);}
+.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:var(--sp-3);margin-bottom:var(--sp-5);}
+.metric-card{background:var(--panel);border:1px solid var(--border);border-radius:var(--r-lg);
+  padding:var(--sp-4);display:flex;flex-direction:column;gap:var(--sp-1);min-height:118px;}
+.metric-card .label{font-size:11px;font-weight:800;color:var(--tx-2);text-transform:uppercase;letter-spacing:.08em;}
+.metric-card .value{font-size:34px;font-weight:850;color:var(--tx-0);line-height:1.05;letter-spacing:-.03em;}
 .metric-card .sub{font-size:12px;color:var(--tx-2);}
 .charts{display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-4);}
-.chart-card{background:var(--bg-2);border:1px solid var(--border);border-radius:var(--r-lg);padding:var(--sp-5);}
-.chart-card h3{font-size:14px;font-weight:600;color:var(--tx-1);margin-bottom:var(--sp-3);}
+.chart-card{background:var(--panel);border:1px solid var(--border);border-radius:var(--r-lg);padding:var(--sp-5);}
+.chart-card h3{font-size:14px;font-weight:750;color:var(--tx-1);margin-bottom:var(--sp-3);}
 .chart-card canvas{width:100%;max-height:260px;}
-.empty-state{text-align:center;padding:var(--sp-6);color:var(--tx-2);font-size:14px;}
-.empty-state .icon{font-size:48px;margin-bottom:var(--sp-3);opacity:.4;}
+.empty-state{text-align:center;padding:var(--sp-7);color:var(--tx-2);font-size:14px;background:var(--panel);
+  border:1px dashed var(--border-2);border-radius:var(--r-lg);margin-top:var(--sp-4);}
+.empty-state .icon{font-size:42px;margin-bottom:var(--sp-3);opacity:.55;}
+.empty-state p{margin:0 auto var(--sp-4);max-width:520px;}
 /* ===== CHAT ===== */
 .chat-view{padding:0 !important;display:none;flex-direction:column;overflow:hidden;}
 .chat-view.active{display:flex;}
-.chat-log{flex:1;overflow-y:auto;padding:var(--sp-4) var(--sp-5);scroll-behavior:smooth;}
-.chat-thread{max-width:820px;margin:0 auto;display:flex;flex-direction:column;gap:var(--sp-3);}
-.msg{padding:var(--sp-3) var(--sp-4);border-radius:var(--r-lg);background:var(--bg-2);
-  border:1px solid var(--border);max-width:88%;overflow-wrap:anywhere;}
-.msg.me{background:var(--ac-bg);border-color:rgba(79,143,247,.15);align-self:flex-end;}
-.msg.sys{background:var(--amber-bg);border-color:rgba(251,191,36,.15);}
+.chat-log{flex:1;overflow-y:auto;padding:var(--sp-5);scroll-behavior:smooth;}
+.chat-start,.chat-thread{max-width:920px;margin:0 auto;}
+.chat-start{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:var(--sp-4);align-items:center;
+  padding:var(--sp-5);border:1px solid var(--border);border-radius:var(--r-lg);background:var(--panel);
+  margin-bottom:var(--sp-4);}
+.chat-start h2{font-size:24px;line-height:1.1;letter-spacing:-.02em;margin:0 0 var(--sp-2);}
+.chat-start p{color:var(--tx-2);margin:0;max-width:640px;}
+.chat-thread{display:flex;flex-direction:column;gap:var(--sp-3);}
+.msg{padding:var(--sp-4);border-radius:var(--r-lg);background:var(--panel);
+  border:1px solid var(--border);max-width:86%;overflow-wrap:anywhere;box-shadow:0 1px 0 rgba(255,255,255,.02);}
+.msg.me{background:var(--ac-bg);border-color:color-mix(in srgb,var(--ac) 28%,transparent);align-self:flex-end;}
+.msg.sys{background:var(--amber-bg);border-color:color-mix(in srgb,var(--amber) 26%,transparent);}
 .msg .who{display:flex;align-items:center;gap:var(--sp-2);margin-bottom:var(--sp-1);}
-.msg .av{width:24px;height:24px;border-radius:var(--r-sm);display:grid;place-items:center;
+.msg .av{width:26px;height:26px;border-radius:var(--r-md);display:grid;place-items:center;
   font-size:11px;font-weight:700;color:#fff;background:var(--ac);flex-shrink:0;}
 .msg.me .av{background:var(--ac-2);}
 .msg.sys .av{background:var(--amber);color:var(--bg-0);}
@@ -561,23 +598,26 @@ a.dl:hover{background:var(--ac-2);}
 .warn{color:var(--red);font-weight:600;}
 .stopnote{color:var(--tx-2);font-size:12px;margin-top:var(--sp-1);font-style:italic;}
 /* Chat input */
-.chat-footer{padding:var(--sp-3) var(--sp-5) calc(var(--sp-3) + env(safe-area-inset-bottom));
-  background:var(--bg-1);border-top:1px solid var(--border);}
-.chat-bar{max-width:820px;margin:0 auto;display:flex;gap:var(--sp-2);align-items:flex-end;}
+.chat-footer{padding:var(--sp-4) var(--sp-5) calc(var(--sp-4) + env(safe-area-inset-bottom));
+  background:var(--panel);border-top:1px solid var(--border);}
+.chat-bar{max-width:920px;margin:0 auto;display:flex;gap:var(--sp-3);align-items:flex-end;}
 .chat-bar textarea{flex:1;resize:none;padding:var(--sp-3) var(--sp-4);border-radius:var(--r-lg);
   border:1px solid var(--border);background:var(--bg-2);color:var(--tx-0);
-  min-height:44px;max-height:160px;overflow-y:auto;transition:border-color var(--tr-fast);}
+  min-height:48px;max-height:160px;overflow-y:auto;transition:border-color var(--tr-fast),box-shadow var(--tr-fast);}
 .chat-bar textarea:focus{border-color:var(--ac);outline:none;}
 .chat-bar .btns{display:flex;gap:var(--sp-2);}
 .btn{font:inherit;font-weight:600;cursor:pointer;border-radius:var(--r-md);
   min-height:44px;padding:0 var(--sp-4);border:1px solid transparent;
-  transition:all var(--tr-fast);font-size:13px;}
-.btn-primary{background:var(--ac);color:#fff;}
+  transition:all var(--tr-fast);font-size:13px;display:inline-flex;align-items:center;justify-content:center;gap:var(--sp-2);}
+.btn:active{transform:translateY(1px);}
+.btn-primary{background:var(--ac);color:var(--ac-ink);}
 .btn-primary:hover{background:var(--ac-2);}
 .btn-primary.stop{background:var(--red);}
 .btn-ghost{background:var(--bg-2);color:var(--tx-1);border-color:var(--border);}
 .btn-ghost:hover{border-color:var(--ac);color:var(--ac);}
-.btn:disabled{opacity:.4;cursor:default;}
+.btn-line{background:transparent;border-color:var(--border-2);color:var(--tx-1);}
+.btn-line:hover{background:var(--bg-3);color:var(--tx-0);}
+.btn:disabled{opacity:.45;cursor:default;transform:none;}
 .chat-hint{max-width:820px;margin:var(--sp-1) auto 0;font-size:11px;color:var(--tx-2);text-align:center;}
 .chat-hint kbd{font:11px/1 var(--mono);background:var(--bg-3);border:1px solid var(--border-2);
   border-radius:4px;padding:1px 5px;color:var(--tx-1);}
@@ -597,10 +637,12 @@ a.dl:hover{background:var(--ac-2);}
 /* ===== CHECKLIST VIEWER ===== */
 .checklist-view{padding:0 !important;overflow:hidden;}
 .cl-toolbar{display:flex;gap:var(--sp-3);padding:var(--sp-4) var(--sp-5);
-  border-bottom:1px solid var(--border);flex-wrap:wrap;align-items:center;flex-shrink:0;}
+  border-bottom:1px solid var(--border);flex-wrap:wrap;align-items:center;flex-shrink:0;background:var(--panel);}
+.cl-heading{display:flex;align-items:flex-end;justify-content:space-between;gap:var(--sp-4);
+  padding:var(--sp-6) var(--sp-5) var(--sp-4);background:var(--bg-1);border-bottom:1px solid var(--border);}
 .cl-toolbar select,.cl-toolbar input[type=text]{padding:var(--sp-2) var(--sp-3);
-  border-radius:var(--r-sm);border:1px solid var(--border);background:var(--bg-2);
-  color:var(--tx-0);font-size:12px;min-width:140px;}
+  border-radius:var(--r-md);border:1px solid var(--border);background:var(--bg-2);
+  color:var(--tx-0);font-size:13px;min-width:160px;min-height:40px;}
 .cl-toolbar select:focus,.cl-toolbar input[type=text]:focus{border-color:var(--ac);outline:none;}
 .cl-table-wrap{flex:1;overflow:auto;}
 .cl-table{width:100%;border-collapse:collapse;font-size:13px;}
@@ -619,8 +661,8 @@ a.dl:hover{background:var(--ac-2);}
 .cl-table .drag-handle:active{cursor:grabbing;}
 .cl-table [contenteditable=true]{outline:1px solid var(--ac);border-radius:3px;padding:1px 3px;background:var(--ac-bg);}
 /* ===== SETTINGS ===== */
-.settings-grid{display:grid;gap:var(--sp-4);max-width:640px;}
-.setting-group{background:var(--bg-2);border:1px solid var(--border);border-radius:var(--r-lg);padding:var(--sp-5);}
+.settings-grid{display:grid;gap:var(--sp-4);max-width:760px;}
+.setting-group{background:var(--panel);border:1px solid var(--border);border-radius:var(--r-lg);padding:var(--sp-5);}
 .setting-group h3{font-size:14px;font-weight:700;margin-bottom:var(--sp-3);color:var(--tx-0);}
 .setting-row{display:flex;align-items:center;gap:var(--sp-3);margin-bottom:var(--sp-3);}
 .setting-row:last-child{margin-bottom:0;}
@@ -632,12 +674,21 @@ a.dl:hover{background:var(--ac-2);}
 @media(max-width:768px){
   .sidebar{position:fixed;left:0;top:0;bottom:0;z-index:20;box-shadow:var(--shadow-lg);}
   .sidebar.collapsed{width:0;border:0;}
+  .view{padding:var(--sp-4);}
+  .view-head,.dashboard-hero,.chat-start{grid-template-columns:1fr;align-items:start;}
+  .view-head,.cl-heading{flex-direction:column;align-items:flex-start;}
   .charts{grid-template-columns:1fr;}
   .metrics{grid-template-columns:1fr 1fr;}
+  .topbar{padding:0 var(--sp-3);}
+  .topbar .brand .brand-stack{display:none;}
+  #guidelinePill{display:none;}
 }
 @media(max-width:480px){
   .metrics{grid-template-columns:1fr;}
   .chat-bar .btns{flex-direction:column;}
+  .chat-bar{flex-direction:column;align-items:stretch;}
+  .msg{max-width:100%;}
+  .hero-panel h3{font-size:26px;}
 }
 @media(prefers-reduced-motion:reduce){
   *{scroll-behavior:auto!important;animation:none!important;transition:none!important;}
@@ -648,7 +699,7 @@ a.dl:hover{background:var(--ac-2);}
     --tx-1:#d7dceb;--tx-2:#aeb6cc;}
   [data-theme="light"]{--border:rgba(0,0,0,.3);--border-2:rgba(0,0,0,.45);
     --tx-1:#2a3050;--tx-2:#3f476a;}
-  .msg,.metric-card,.chart-card,.setting-group{border-width:1px;}
+  .msg,.metric-card,.chart-card,.setting-group,.hero-panel,.quick-card{border-width:1px;}
 }
 /* Windows High Contrast / forced-colors: keep focus + active state visible */
 @media(forced-colors:active){
@@ -665,12 +716,12 @@ a.dl:hover{background:var(--ac-2);}
 <!-- SIDEBAR -->
 <aside class="sidebar" id="sidebar" aria-label="Sidebar">
   <div class="sidebar-header">
-    <span class="icon" style="font-size:16px" aria-hidden="true">&#9638;</span>
+    <div class="brand-mark" aria-hidden="true">PC</div>
     <span>Purchasing Coach</span>
   </div>
   <nav aria-label="Primary">
     <button type="button" class="nav-item active" data-view="dashboard" aria-current="page" onclick="switchView('dashboard')">
-      <span class="icon" aria-hidden="true">&#9636;</span><span class="nav-label">Dashboard</span>
+      <span class="icon" aria-hidden="true">&#9636;</span><span class="nav-label">Overview</span>
     </button>
     <button type="button" class="nav-item" data-view="chat" onclick="switchView('chat')">
       <span class="icon" aria-hidden="true">&#128172;</span><span class="nav-label">Chat</span>
@@ -692,7 +743,7 @@ a.dl:hover{background:var(--ac-2);}
             aria-label="Collapse sidebar" aria-expanded="true" aria-controls="sidebar">&#9776;</button>
     <div class="brand">
       <span class="logo" aria-hidden="true">PC</span>
-      <span>Purchasing Coach</span>
+      <span class="brand-stack"><span>Purchasing Coach</span><small>Procurement compliance workbench</small></span>
     </div>
     <span class="pill ok" id="backendPill" title="AI backend status"><span class="dot" aria-hidden="true"></span><span id="backendLabel">connecting</span></span>
     <span class="pill info" id="guidelinePill" title="Loaded guideline"><span class="dot" aria-hidden="true"></span><span id="guidelineLabel">...</span></span>
@@ -702,7 +753,37 @@ a.dl:hover{background:var(--ac-2);}
   </header>
   <!-- DASHBOARD -->
   <div class="view active" id="view-dashboard" role="region" aria-label="Dashboard">
-    <h2 class="view-title">Dashboard</h2>
+    <div class="view-head">
+      <div>
+        <h2 class="view-title">Procurement cockpit</h2>
+        <p class="view-subtitle">Generate guideline-grounded tender checklists, review coverage, and keep procurement decisions auditable from one local workspace.</p>
+      </div>
+      <div class="view-actions">
+        <button type="button" class="btn btn-primary" onclick="switchView('chat');startTender()">Start checklist</button>
+        <button type="button" class="btn btn-line" onclick="switchView('chat')">Ask guideline</button>
+      </div>
+    </div>
+    <div class="dashboard-hero">
+      <section class="hero-panel" aria-labelledby="heroTitle">
+        <div class="kicker"><span aria-hidden="true">&#10003;</span> Local, auditable, vendor-ready</div>
+        <h3 id="heroTitle">Turn purchasing policy into an actionable tender tracker.</h3>
+        <p>Interview the buyer, pull in the right clauses, and export a workbook with vendor responses and approval checks ready for review.</p>
+        <div class="view-actions">
+          <button type="button" class="btn btn-primary" onclick="switchView('chat');startTender()">Build tender checklist</button>
+          <button type="button" class="btn btn-line" onclick="switchView('settings')">Review setup</button>
+        </div>
+      </section>
+      <aside class="quick-grid" aria-label="Quick actions">
+        <div class="quick-card">
+          <div><strong>Guideline chat</strong><br><span>Ask clause-specific procurement questions with citations.</span></div>
+          <button type="button" class="btn btn-ghost" onclick="switchView('chat')">Open chat</button>
+        </div>
+        <div class="quick-card">
+          <div><strong>Checklist review</strong><br><span>Filter, reorder, export, and audit requirements after generation.</span></div>
+          <button type="button" class="btn btn-ghost" onclick="switchView('checklist')">Open checklist</button>
+        </div>
+      </aside>
+    </div>
     <div class="metrics" id="metricsGrid">
       <div class="metric-card"><span class="label">Total Requirements</span><span class="value" id="mTotal">0</span><span class="sub">across all sections</span></div>
       <div class="metric-card"><span class="label">Mandatory</span><span class="value" id="mMand" style="color:var(--red)">0</span><span class="sub">must comply</span></div>
@@ -715,13 +796,22 @@ a.dl:hover{background:var(--ac-2);}
     </div>
     <div class="empty-state" id="dashEmpty" style="display:none">
       <div class="icon">&#128203;</div>
-      <p>No checklist generated yet. Use the Chat to create a tender checklist,<br>then return here to view analytics.</p>
+      <p>No checklist generated yet. Start with a tender interview, then this dashboard will show mandatory coverage, optional items, and section distribution.</p>
+      <button type="button" class="btn btn-primary" onclick="switchView('chat');startTender()">Start tender interview</button>
     </div>
   </div>
   <!-- CHAT -->
   <div class="view chat-view" id="view-chat" role="region" aria-label="Chat">
     <div class="chat-log" id="chatLog" role="log" aria-live="polite" aria-label="Conversation" tabindex="0">
       <div class="interview-progress" id="interviewProgress"></div>
+      <section class="chat-start" aria-labelledby="chatStartTitle">
+        <div>
+          <div class="kicker"><span aria-hidden="true">&#9679;</span> Guideline assistant</div>
+          <h2 id="chatStartTitle">Ask a question or start a tender interview.</h2>
+          <p>Use natural language for clause lookups, or run the guided checklist flow when you are ready to prepare a vendor-facing workbook.</p>
+        </div>
+        <button type="button" class="btn btn-primary" onclick="startTender()">Tender Checklist</button>
+      </section>
       <div class="chat-thread" id="chatThread"></div>
     </div>
     <div class="chat-footer">
@@ -738,6 +828,13 @@ a.dl:hover{background:var(--ac-2);}
   </div>
   <!-- CHECKLIST -->
   <div class="view checklist-view" id="view-checklist" role="region" aria-label="Checklist">
+    <div class="cl-heading">
+      <div>
+        <h2 class="view-title">Checklist review</h2>
+        <p class="view-subtitle">Search, filter, reorder, and export generated requirements before handing the workbook to vendors.</p>
+      </div>
+      <button type="button" class="btn btn-primary" onclick="switchView('chat');startTender()">New checklist</button>
+    </div>
     <div class="cl-toolbar" role="search">
       <label for="clSearch" class="sr-only">Search requirements</label>
       <input type="text" id="clSearch" placeholder="Search requirements..." oninput="filterChecklist()">
@@ -763,13 +860,19 @@ a.dl:hover{background:var(--ac-2);}
       </table>
       <div class="empty-state" id="clEmpty">
         <div class="icon">&#128203;</div>
-        <p>No checklist generated yet. Generate one via Chat &rarr; Tender Checklist.</p>
+        <p>No checklist generated yet. Generate one through the guided chat flow, then return here to inspect every requirement.</p>
+        <button type="button" class="btn btn-primary" onclick="switchView('chat');startTender()">Generate checklist</button>
       </div>
     </div>
   </div>
   <!-- SETTINGS -->
   <div class="view" id="view-settings" role="region" aria-label="Settings">
-    <h2 class="view-title">Settings</h2>
+    <div class="view-head">
+      <div>
+        <h2 class="view-title">Runtime settings</h2>
+        <p class="view-subtitle">Confirm the active backend, loaded guideline, available models, and local operating mode before procurement work begins.</p>
+      </div>
+    </div>
     <div class="settings-grid">
       <div class="setting-group">
         <h3>Backend</h3>
@@ -843,12 +946,18 @@ function toggleTheme(){
 }
 
 /* ===== SIDEBAR ===== */
-function toggleSidebar(){
-  S.sidebarOpen=!S.sidebarOpen;
-  document.getElementById('sidebar').classList.toggle('collapsed',!S.sidebarOpen);
+function setSidebar(open){
+  S.sidebarOpen=open;
+  document.getElementById('sidebar').classList.toggle('collapsed',!open);
   const b=document.getElementById('menuBtn');
-  b.setAttribute('aria-expanded',String(S.sidebarOpen));
-  b.setAttribute('aria-label',S.sidebarOpen?'Collapse sidebar':'Expand sidebar');
+  b.setAttribute('aria-expanded',String(open));
+  b.setAttribute('aria-label',open?'Collapse sidebar':'Expand sidebar');
+}
+function initSidebar(){
+  setSidebar(!matchMedia('(max-width:768px)').matches);
+}
+function toggleSidebar(){
+  setSidebar(!S.sidebarOpen);
 }
 
 /* ===== NAVIGATION ===== */
@@ -865,6 +974,7 @@ function switchView(name){
   });
   document.title=(VIEW_TITLES[name]||'Purchasing Coach')+' · Purchasing Coach';
   announce(VIEW_TITLES[name]+' view');
+  if(matchMedia('(max-width:768px)').matches)setSidebar(false);
   if(name==='dashboard')refreshAnalytics();
   if(name==='chat')document.getElementById('chatBox').focus();
 }
@@ -1295,7 +1405,7 @@ chatBox.addEventListener('keydown',e=>{
 });
 
 /* ===== INIT ===== */
-initTheme();loadMeta();loadSessions();refreshAnalytics();
+initTheme();initSidebar();loadMeta();loadSessions();refreshAnalytics();
 // Health check every 30s
 setInterval(async()=>{try{const r=await fetch('/api/health');const d=await r.json();
   const pill=document.getElementById('backendPill');
