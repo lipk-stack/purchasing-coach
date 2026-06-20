@@ -42,7 +42,7 @@ def run_tender_flow(coach: Coach, template_path: str | Path | None,
 
     out_path = Path(out_dir) / output_name(checklist.tender_info.purchase_item)
     write_checklist(checklist.tender_info, checklist.requirements,
-                    out_path, template_path)
+                    out_path, template_path, interview=answers)
     say(f"\nDone. {len(checklist.requirements)} requirements written to: {out_path}")
     if checklist.added_core_sections:
         secs = ", ".join(checklist.added_core_sections)

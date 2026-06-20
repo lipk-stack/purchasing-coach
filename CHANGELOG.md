@@ -9,6 +9,15 @@ to follow [Semantic Versioning](https://semver.org/).
 Production-quality hardening pass.
 
 ### Added
+- **Procurement Brief sheet capturing the reverse-prompting interview.** Every
+  generated workbook now carries a *Procurement Brief* sheet (placed right after
+  *Tender Information*) that records the purchase item, category, and the full
+  list of interview questions with the buyer's answers. Because those answers
+  drive which guideline sections are pulled into the checklist, this gives the
+  reviewer and approver the rationale for the compliance scope on the same
+  workbook that's submitted for sign-off — without re-running the interview. The
+  sheet is omitted when a workbook is written outside the tender flow, so
+  existing callers are unaffected, and it is rebuilt idempotently on re-runs.
 - **macOS launcher and a one-zip standalone deployment bundle.** macOS users
   now get a double-clickable `run.command` (the Finder equivalent of Windows'
   `run.bat`; it hands off to `run.sh`). `scripts/build_portable.py --zip`

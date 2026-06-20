@@ -2,6 +2,60 @@
 
 Reference this file at the start of each routine run.
 
+## Iteration 27 — 2026-06-20 (Procurement Brief sheet: interview traceability)
+
+Routine run. Entered healthy — **202 tests pass, 2 skipped, ruff clean** on
+`claude/nice-ride-nbg3in` (== `main` on entry; the recurring stale-local-ref
+pattern did not recur this run). **Drive source docs unchanged:** both
+`XXEON_IT_Procurement_Guideline.docx` and `TENDER_TEMPLATE.xlsx` still
+`modifiedTime 2026-06-10T13:05:11Z` (verified via an authoritative `parentId`
+listing of the "Purchasing Guideline" folder, not just fullText search) — no
+sample refresh needed (follow-up 4/5).
+
+**End-to-end product re-verified (the task's core ask).** Ran the full Coach
+pipeline (Template backend) for a *small* "Cloud CRM SaaS, 20-person team" buy:
+reverse-prompting asked **14 questions** covering the whole guideline, and the
+build produced a **191-row** checklist spanning sections 4,5,6,7,9,10,11,12,13
+(correctly omits hardware §8), with financial (10) and SBOM (13) folded in from
+the buyer's affirmative answers. Granularity spot-checked on §5.1/§5.3 — atomic,
+verbatim, attestable rows (MFA, RBAC, the §5.3 password-policy line, SSO, etc.).
+Confirms reverse-prompting fully covers the guideline and rows stay granular.
+Architecture note for future runs: the comprehensive coverage lives in
+`guideline.py::_COVERAGE` (one applicability question + `include_root` per major
+section). The Coach merges these on top of *any* backend's interview
+(`_ensure_coverage`) and folds sections in via `sections_from_answers` +
+`ensure_core_sections` in `build_checklist` — so even the deterministic Template
+backend (narrower per-scenario decision tree in `templates/scenarios.py`) ends
+up with full guideline coverage. Both paths are comprehensive.
+
+**Change shipped — Procurement Brief sheet (interview traceability).** The
+generated workbook now records the reverse-prompting Q&A so an approver can see
+*why* the compliance scope is what it is (the buyer's answers drive section
+inclusion) on the same workbook submitted for sign-off.
+- `coach/excel.py`: new `BRIEF_SHEET = "Procurement Brief"` + `_add_brief_sheet`.
+  `write_checklist` gained an optional `interview: list[tuple[str,str]] | None`
+  param (default `None` → no sheet, so every existing caller/test is unaffected).
+  The sheet carries Purchase Item + Category (from `tender_info`) and a numbered
+  Question/Response table; it's placed immediately after *Tender Information*
+  (`move_sheet`) and rebuilt idempotently (delete-then-create, like the Review
+  sheet) so re-runs don't stack duplicates.
+- Threaded the interview answers through both finish paths: `tender.py`
+  (`run_tender_flow` passes `answers`) and `webui.py` (`tender_finish` reuses the
+  normalised `interview` list it already builds for `build_checklist`).
+- Tests: `tests/test_excel.py` +3 — content/order assertion, omitted-without-
+  interview (back-compat), and idempotent-on-rerun. **205 pass** (+3), 2 skipped,
+  ruff clean. Rebuilt the tracked `dist/purchasing-coach.pyz` (336 KB) + standard
+  zip and verified `--help`. README (both the feature blurb and the output-format
+  note) + CHANGELOG (Unreleased → Added) updated.
+
+**Design rationale (so a future run doesn't second-guess it):** this is purely
+*additive* to the user's real template — it appends a new sheet and never
+touches the *Tender Information* / *Compliance Tracker* columns the user
+provided (the notes' standing rule to match the real template is preserved). It
+directly serves the user's stated workflow ("populate it to be submitted for
+review and approval") by giving reviewers the scope rationale. Not a new column
+(which *would* diverge from the template).
+
 ## Iteration 26 — 2026-06-20 (macOS launcher + standalone deployment zip)
 
 User: "Add an option to run in macOS then bundle a standalone zip for

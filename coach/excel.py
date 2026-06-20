@@ -13,6 +13,7 @@ from .models import RequirementRow, TenderInfo
 INFO_SHEET = "Tender Information"
 TRACKER_SHEET = "Compliance Tracker"
 REVIEW_SHEET = "Review & Approval"
+BRIEF_SHEET = "Procurement Brief"
 TRACKER_HEADERS = ["Seq", "Ref", "Section", "Requirement", "M/O",
                    "Vendor Status", "Vendor Remarks"]
 
@@ -43,11 +44,17 @@ def write_checklist(
     requirements: list[RequirementRow],
     out_path: str | Path,
     template_path: str | Path | None = None,
+    interview: list[tuple[str, str]] | None = None,
 ) -> Path:
     """Fill the tender template with the interview results and save it.
 
     If ``template_path`` is given the workbook is loaded from it (preserving
     its formatting); otherwise a fresh workbook with the same layout is built.
+
+    ``interview`` is the reverse-prompting question/answer record. When given,
+    it is captured on a ``Procurement Brief`` sheet so the reviewer/approver can
+    see the buyer's declared requirements — the basis on which the compliance
+    scope was selected.
     """
     out_path = Path(out_path)
     if template_path and Path(template_path).exists():
@@ -58,6 +65,7 @@ def write_checklist(
     _fill_info_sheet(wb, tender_info)
     header_row, last_row, col = _fill_tracker_sheet(wb, requirements)
     _add_review_sheet(wb, header_row, last_row, col)
+    _add_brief_sheet(wb, tender_info, interview)
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(str(out_path))
@@ -271,6 +279,75 @@ def _add_review_sheet(wb, header_row: int, last_row: int,
 
     ws.column_dimensions["A"].width = 40
     ws.column_dimensions["B"].width = 40
+
+
+def _add_brief_sheet(
+    wb, tender_info: TenderInfo, interview: list[tuple[str, str]] | None
+) -> None:
+    """Record the reverse-prompting interview on a Procurement Brief sheet.
+
+    The compliance checklist's *scope* (which guideline sections were included)
+    is driven by the buyer's answers during the tender interview. Capturing
+    those questions and answers on the same workbook gives the reviewer and
+    approver the rationale for the scope — they can confirm the right sections
+    were pulled in and challenge any answer that looks wrong — without re-running
+    the interview. No-op when there is no interview to record (e.g. a workbook
+    written outside the tender flow), so existing callers are unaffected.
+    """
+    if not interview:
+        return
+
+    # Build a fresh sheet so re-runs stay idempotent.
+    if BRIEF_SHEET in wb.sheetnames:
+        del wb[BRIEF_SHEET]
+    ws = wb.create_sheet(BRIEF_SHEET)
+    # Read first: sit it right after the Tender Information sheet.
+    if INFO_SHEET in wb.sheetnames:
+        info_idx = wb.sheetnames.index(INFO_SHEET)
+        wb.move_sheet(BRIEF_SHEET, info_idx + 1 - wb.sheetnames.index(BRIEF_SHEET))
+
+    title_font = Font(bold=True, size=14)
+    label_font = Font(bold=True)
+    wrap_top = Alignment(vertical="top", wrap_text=True)
+
+    ws["A1"] = "PROCUREMENT BRIEF"
+    ws["A1"].font = title_font
+
+    ws["A2"] = (
+        "The buyer's answers below scoped this compliance checklist. Review "
+        "them alongside the Compliance Tracker before approving."
+    )
+    ws["A2"].font = Font(italic=True, size=9)
+
+    row = 4
+    for label, value in (
+        ("Purchase Item", tender_info.purchase_item),
+        ("Purchase Category", tender_info.purchase_category),
+    ):
+        ws.cell(row=row, column=1, value=label).font = label_font
+        ws.cell(row=row, column=2, value=value).alignment = wrap_top
+        row += 1
+
+    row += 1
+    ws.cell(row=row, column=1, value="Interview Record").font = label_font
+    row += 1
+    header_fill = PatternFill("solid", fgColor="D9E1F2")
+    headers = ["#", "Question", "Response"]
+    for c, text in enumerate(headers, start=1):
+        cell = ws.cell(row=row, column=c, value=text)
+        cell.font = label_font
+        cell.fill = header_fill
+    row += 1
+
+    for i, (question, answer) in enumerate(interview, start=1):
+        ws.cell(row=row, column=1, value=i).alignment = wrap_top
+        ws.cell(row=row, column=2, value=str(question)).alignment = wrap_top
+        ws.cell(row=row, column=3, value=str(answer)).alignment = wrap_top
+        row += 1
+
+    ws.column_dimensions["A"].width = 5
+    ws.column_dimensions["B"].width = 60
+    ws.column_dimensions["C"].width = 45
 
 
 def _find_sheet(wb, name: str):

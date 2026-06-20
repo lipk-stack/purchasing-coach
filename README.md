@@ -18,7 +18,11 @@ procurement guideline in `.docx`) and lets you:
    live *compliance rate* of the applicable requirements, and the *mandatory
    non-compliant* total (the go/no-go figure, conditionally formatted red when
    above zero and green once it clears) — plus a reviewer sign-off block with a
-   fixed approval-decision dropdown.
+   fixed approval-decision dropdown. A **Procurement Brief** sheet records the
+   reverse-prompting interview (every question and the buyer's answer) so the
+   reviewer and approver can see the basis on which the compliance scope was
+   selected — and challenge any answer that looks wrong — without re-running the
+   interview.
 
    The checklist is **granular and derived from the guideline in detail**: the
    model decides which clauses apply to your purchase, then each selected
@@ -370,7 +374,8 @@ extra packages), `.md`, `.txt`, and `.pdf` with `pip install pypdf`. If no
 template is supplied, a built-in layout matching `TENDER_TEMPLATE.xlsx`
 (sheets *Tender Information* and *Compliance Tracker*) is used. A
 *Review & Approval* sheet is always added with the compliance summary and
-reviewer sign-off block.
+reviewer sign-off block, and a *Procurement Brief* sheet records the interview
+Q&A that scoped the checklist.
 
 ## Development
 

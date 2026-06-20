@@ -157,11 +157,12 @@ class WebUI:
                               for q in plan.questions]}
 
     def tender_finish(self, item: str, answers: list) -> dict:
-        checklist: TenderChecklist = self.coach.build_checklist(
-            item, [(str(q), str(a)) for q, a in answers])
+        interview = [(str(q), str(a)) for q, a in answers]
+        checklist: TenderChecklist = self.coach.build_checklist(item, interview)
         name = output_name(checklist.tender_info.purchase_item)
         write_checklist(checklist.tender_info, checklist.requirements,
-                        self.out_dir / name, self.template_path)
+                        self.out_dir / name, self.template_path,
+                        interview=interview)
         self.generated.add(name)
         self._last_checklist = checklist.requirements
         return {

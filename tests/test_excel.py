@@ -3,6 +3,8 @@ import re
 from openpyxl import load_workbook
 
 from coach.excel import (
+    BRIEF_SHEET,
+    INFO_SHEET,
     REVIEW_DECISION_OPTIONS,
     REVIEW_SHEET,
     VENDOR_STATUS_OPTIONS,
@@ -276,3 +278,53 @@ def test_review_compliance_rate_is_divide_by_zero_safe(samples, tmp_path):
     summary = {ws.cell(r, 1).value: ws.cell(r, 2).value
                for r in range(1, ws.max_row + 1) if ws.cell(r, 1).value}
     assert eval_formula(wb, summary["Compliance rate (of applicable)"]) == 0
+
+
+INTERVIEW = [
+    ("Will the software handle personal or payment data?", "Yes - personal data"),
+    ("What payment schedule is preferred?", "Quarterly"),
+    ("Does it include physical hardware?", "No hardware"),
+]
+
+
+def test_brief_sheet_records_interview(samples, tmp_path):
+    out = write_checklist(INFO, ROWS, tmp_path / "brief.xlsx",
+                          samples["template"], interview=INTERVIEW)
+    wb = load_workbook(out)
+    assert BRIEF_SHEET in wb.sheetnames
+    # Sits immediately after the Tender Information sheet for logical reading.
+    names = wb.sheetnames
+    assert names.index(BRIEF_SHEET) == names.index(INFO_SHEET) + 1
+
+    ws = wb[BRIEF_SHEET]
+    flat = [str(c.value) for row in ws.iter_rows() for c in row if c.value]
+    blob = " | ".join(flat)
+    # Purchase context is carried over from the tender info.
+    assert "Endpoint backup SaaS" in blob
+    assert INFO.purchase_category in blob
+    # Every interview question and answer is captured verbatim.
+    for question, answer in INTERVIEW:
+        assert question in blob
+        assert answer in blob
+
+    # The Q&A is laid out as numbered rows under a header.
+    header = next(r for r in ws.iter_rows(values_only=True)
+                  if r and r[0] == "#")
+    assert header[1] == "Question" and header[2] == "Response"
+
+
+def test_brief_sheet_omitted_without_interview(samples, tmp_path):
+    # Existing callers that don't pass an interview get the original workbook.
+    out = write_checklist(INFO, ROWS, tmp_path / "no_brief.xlsx",
+                          samples["template"])
+    wb = load_workbook(out)
+    assert BRIEF_SHEET not in wb.sheetnames
+
+
+def test_brief_sheet_idempotent_on_rerun(samples, tmp_path):
+    # Writing twice to the same path must not stack duplicate Brief sheets.
+    path = tmp_path / "rerun.xlsx"
+    write_checklist(INFO, ROWS, path, samples["template"], interview=INTERVIEW)
+    write_checklist(INFO, ROWS, path, path, interview=INTERVIEW)
+    wb = load_workbook(path)
+    assert wb.sheetnames.count(BRIEF_SHEET) == 1
