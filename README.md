@@ -92,7 +92,9 @@ regenerate it with `python scripts/make_samples.py`.
 The fastest way to launch — these start the browser chat UI with the bundled
 sample guideline and template, after checking that Python is installed:
 
-- **Linux / macOS:** `./run.sh`
+- **macOS:** double-click `run.command` (first time: right-click → *Open* to
+  clear Gatekeeper), or run `./run.sh` from a terminal
+- **Linux:** `./run.sh`
 - **Windows:** double-click `run.bat` (or run it from a terminal)
 
 Any flags you add are forwarded to the app, so the run script doubles as a
@@ -121,6 +123,37 @@ The scripts prefer the prebuilt `dist/purchasing-coach.pyz`; if it's missing
 they fall back to running from source (`python -m coach`).
 
 ## Portable use (no install rights needed)
+
+### Standalone deployment zip (recommended for hand-off)
+
+For deploying to someone who just wants to run it, ship the single
+self-contained zip. Build it with:
+
+```bash
+python scripts/build_portable.py --zip            # standard (~370 KB)
+python scripts/build_portable.py --with-model --zip   # embedded AI (~1 GB)
+```
+
+This writes `dist/purchasing-coach-portable-standard.zip` (a prebuilt standard
+bundle is committed under `dist/`). It unzips to a self-contained folder with
+the app, the sample guideline + template, an end-user `README.md`, and a
+launcher for every OS:
+
+```
+purchasing-coach-portable-standard/
+├── purchasing-coach.pyz     the whole app in one file
+├── run.command              macOS  — double-click to launch
+├── run.sh                   Linux  — ./run.sh to launch
+├── run.bat                  Windows — double-click to launch
+├── samples/                 guideline + tender template
+└── README.md                end-user guide
+```
+
+The recipient installs Python 3.10+, double-clicks the launcher for their OS,
+and the browser chat UI opens — no other setup. The shell launchers keep their
+executable bit through the zip, so macOS/Linux users don't need `chmod`.
+
+### Manual portable copy
 
 1. Copy `dist/purchasing-coach.pyz`, your guideline document and your tender
    template onto the machine (a network share or USB stick is fine).
@@ -193,8 +226,10 @@ Ollama, API key, or model download needed. It bundles the app, the Qwen2.5-1.5B
 GGUF model, sample documents, and a launcher script:
 
 ```
-purchasing-coach-portable/
-├── run.bat                             # double-click to launch
+purchasing-coach-portable-embedded/
+├── run.command                         # macOS — double-click to launch
+├── run.sh                              # Linux — ./run.sh to launch
+├── run.bat                             # Windows — double-click to launch
 ├── purchasing-coach-embedded.pyz       # app + bundled AI model
 ├── samples/                            # guideline + template
 │   ├── XXEON_IT_Procurement_Guideline.docx
@@ -203,7 +238,8 @@ purchasing-coach-portable/
 ```
 
 **To deliver:** extract the zip onto a USB stick, network share, or any
-folder. The user double-clicks `run.bat` — the browser UI opens on
+folder. The user double-clicks the launcher for their OS (`run.command` on
+macOS, `run.bat` on Windows, `run.sh` on Linux) — the browser UI opens on
 `localhost:8765` with the embedded model running locally. The only
 prerequisite is Python 3.10+ on the PATH.
 
@@ -303,7 +339,7 @@ sits beside the app.
 | `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` | `claude`, `auto` | Enables the Claude API backend |
 | `EMBEDDED_MODEL_PATH` | `embedded` | Explicit GGUF file path |
 | `EMBEDDED_MODEL_DIR` | `embedded` | Folder to scan for a bundled `.gguf` |
-| `GUIDELINE` / `TEMPLATE` | `run.sh` / `run.bat` | Default documents for the run scripts |
+| `GUIDELINE` / `TEMPLATE` | `run.command` / `run.sh` / `run.bat` | Default documents for the run scripts |
 
 ## Running from source
 
@@ -344,18 +380,20 @@ python scripts/make_samples.py        # rebuild sample docx/xlsx
 ruff check .                          # lint
 pytest                                # offline — LLM calls are faked/mocked
 python scripts/build_portable.py      # rebuild dist/purchasing-coach.pyz
-python scripts/build_portable.py --with-model   # rebuild embedded bundle (~1 GB)
+python scripts/build_portable.py --zip            # + standalone deployment zip
+python scripts/build_portable.py --with-model     # rebuild embedded bundle (~1 GB)
+python scripts/build_portable.py --with-model --zip   # embedded deployment zip
 ```
 
 The `--with-model` variant requires the `llama-cpp-python` pre-built wheel
 (available via `--extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu`;
 the build script handles this automatically). The first build downloads the
 GGUF model (~1.1 GB); it is cached in `build/model_cache/` for faster rebuilds.
-The embedded build produces `dist/purchasing-coach-embedded.pyz`. To create
-the full portable zip bundle for distribution, run the packaging step from
-`scripts/portable_run.bat` or zip `dist/purchasing-coach-embedded.pyz` together
-with `scripts/portable_run.bat` (as `run.bat`), `scripts/portable_README.md`
-(as `README.md`), and the `samples/` directory.
+The embedded build produces `dist/purchasing-coach-embedded.pyz`. Add `--zip`
+to either build to assemble the full standalone deployment bundle automatically
+(app + `samples/` + the macOS/Windows/Linux launchers + the end-user guide),
+written to `dist/purchasing-coach-portable-<variant>.zip` — see
+[Standalone deployment zip](#standalone-deployment-zip-recommended-for-hand-off).
 
 Packaging/metadata and tool config (pytest, ruff) live in `pyproject.toml`;
 installing also provides a `purchasing-coach` console script. Lint and the full
@@ -381,9 +419,13 @@ Project layout:
 - `coach/webui.py` — local browser UI (stdlib `http.server`)
 - `coach/gguf_models/` — package directory for bundled GGUF model files (the
   build script drops the model here; separate from `coach/models.py`)
-- `scripts/build_portable.py` — zipapp builder (`--with-model` for embedded)
+- `run.command` / `run.sh` / `run.bat` — double-click launchers for macOS,
+  Linux and Windows (run.command hands off to run.sh)
+- `scripts/build_portable.py` — zipapp builder (`--with-model` for embedded,
+  `--zip` for the standalone deployment bundle)
 - `scripts/_bootstrap.py` — native DLL extraction bootstrap for the embedded
   zipapp (extracts numpy + llama-cpp-python to a temp dir at startup)
-- `scripts/portable_run.bat` — portable bundle launcher (double-click to start)
-- `scripts/portable_README.md` — end-user README shipped in the portable bundle
+- `scripts/portable_run.command` / `portable_run.sh` / `portable_run.bat` —
+  bundle launchers (copied into the deployment zip as run.command/run.sh/run.bat)
+- `scripts/portable_README.md` — end-user guide shipped in the portable bundle
 - `NOTES.md` — follow-ups for the next iteration

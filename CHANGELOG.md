@@ -9,6 +9,15 @@ to follow [Semantic Versioning](https://semver.org/).
 Production-quality hardening pass.
 
 ### Added
+- **macOS launcher and a one-zip standalone deployment bundle.** macOS users
+  now get a double-clickable `run.command` (the Finder equivalent of Windows'
+  `run.bat`; it hands off to `run.sh`). `scripts/build_portable.py --zip`
+  assembles a self-contained `dist/purchasing-coach-portable-<variant>.zip`
+  containing the app, the sample guideline + template, an end-user `README.md`,
+  and a launcher for every OS (`run.command` / `run.sh` / `run.bat`). The shell
+  launchers keep their Unix exec bit through the zip, so macOS/Linux recipients
+  don't need `chmod`. A prebuilt standard bundle is committed under `dist/`, and
+  the portable end-user guide now covers macOS, Linux and Windows.
 - **Compliance-rate gauge on the Review & Approval sheet.** The live compliance
   rate now carries a green data bar fixed to a 0%–100% scale, so a reviewer
   sees the submission's standing at a glance and the bar length means the same

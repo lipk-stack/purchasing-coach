@@ -29,6 +29,7 @@ import shutil
 import subprocess
 import sys
 import zipapp
+import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -120,12 +121,74 @@ def build(with_model: bool = False) -> Path:
     return target
 
 
+# Documents that ship in the bundle so it works out of the box.
+SAMPLE_FILES = ("XXEON_IT_Procurement_Guideline.docx", "TENDER_TEMPLATE.xlsx")
+# Launchers copied into the bundle root, renamed to the names users expect.
+# (source name in scripts/, name in the bundle, is-executable)
+BUNDLE_LAUNCHERS = (
+    ("portable_run.command", "run.command", True),   # macOS double-click
+    ("portable_run.sh", "run.sh", True),              # Linux / macOS terminal
+    ("portable_run.bat", "run.bat", False),           # Windows double-click
+)
+
+
+def _add_file(zf: zipfile.ZipFile, src: Path, arcname: str,
+              executable: bool = False) -> None:
+    """Add ``src`` to the zip, preserving a Unix exec bit when requested.
+
+    macOS/Linux launchers must stay executable after unzip, so the Unix mode
+    is written into the zip entry's external attributes (the high 16 bits).
+    """
+    info = zipfile.ZipInfo.from_file(src, arcname)
+    info.compress_type = zipfile.ZIP_DEFLATED
+    mode = 0o755 if executable else 0o644
+    info.external_attr = (mode & 0xFFFF) << 16
+    with src.open("rb") as fh:
+        zf.writestr(info, fh.read())
+
+
+def make_bundle(pyz_path: Path, with_model: bool = False) -> Path:
+    """Assemble a standalone deployment zip: app + samples + launchers + guide.
+
+    The result unzips to a self-contained folder where an end user double-clicks
+    the launcher for their OS (run.command / run.bat / run.sh) and the browser
+    chat UI opens — no install beyond Python 3.10+.
+    """
+    variant = "embedded" if with_model else "standard"
+    name = f"purchasing-coach-portable-{variant}"
+    DIST.mkdir(exist_ok=True)
+    target = DIST / f"{name}.zip"
+    target.unlink(missing_ok=True)
+
+    with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as zf:
+        # The application itself.
+        _add_file(zf, pyz_path, f"{name}/{pyz_path.name}")
+        # The sample guideline + template so it runs out of the box.
+        for fname in SAMPLE_FILES:
+            _add_file(zf, ROOT / "samples" / fname, f"{name}/samples/{fname}")
+        # Cross-platform launchers (shell ones stay executable).
+        for src_name, dst_name, executable in BUNDLE_LAUNCHERS:
+            _add_file(zf, SCRIPTS / src_name, f"{name}/{dst_name}", executable)
+        # The end-user guide.
+        _add_file(zf, SCRIPTS / "portable_README.md", f"{name}/README.md")
+
+    return target
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Build portable zipapp")
     parser.add_argument("--with-model", action="store_true",
                         help="Bundle llama-cpp-python + Qwen2.5-1.5B GGUF "
                              "model for fully standalone operation (~1.2 GB)")
+    parser.add_argument("--zip", action="store_true",
+                        help="Also assemble a standalone deployment zip "
+                             "(app + samples + macOS/Windows/Linux launchers "
+                             "+ user guide) under dist/")
     args = parser.parse_args()
 
     out = build(with_model=args.with_model)
     print(f"wrote {out} ({out.stat().st_size / 1024:.0f} KB)")
+
+    if args.zip:
+        bundle = make_bundle(out, with_model=args.with_model)
+        print(f"wrote {bundle} ({bundle.stat().st_size / 1024:.0f} KB)")

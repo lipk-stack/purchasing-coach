@@ -2,6 +2,50 @@
 
 Reference this file at the start of each routine run.
 
+## Iteration 26 — 2026-06-20 (macOS launcher + standalone deployment zip)
+
+User: "Add an option to run in macOS then bundle a standalone zip for
+deployment with complete application and guides." (An earlier draft also asked
+to redesign the UI to Claude Design — the user interrupted and re-scoped this
+turn to macOS + the deployment bundle, so the **Claude-Design UI reskin is NOT
+done and remains an open request for a future run** — see follow-up 15.)
+
+**Shipped — macOS run option + turnkey deployment bundle.**
+- `run.command` (repo root, executable): the macOS double-click launcher (Finder
+  runs `.command` files in Terminal). Thin wrapper that hands off to `run.sh`,
+  so every documented flag/env-var works. `run.sh` already supported macOS from
+  a terminal; this adds the one-click parity Windows had via `run.bat`.
+- `scripts/portable_run.sh` + `scripts/portable_run.command`: bundle launchers
+  (the existing `portable_run.bat` was Windows-only). The build copies them into
+  the zip as `run.sh` / `run.command` / `run.bat`.
+- `scripts/build_portable.py`: new `make_bundle()` + `--zip` flag. Assembles
+  `dist/purchasing-coach-portable-<variant>.zip` = app `.pyz` + `samples/`
+  (guideline + template) + all three launchers + the end-user `README.md`. A
+  hand-written `_add_file` sets the Unix exec bit (0755) in each shell
+  launcher's zip `external_attr` high bits, so a real `unzip`/macOS Finder
+  Archive Utility leaves them runnable (Python's `zipfile.extractall` ignores
+  mode bits, but end users don't extract that way; the guide still notes a
+  `chmod +x` fallback). **Verified end-to-end:** built the standard zip (373 KB),
+  extracted with the real `unzip` CLI → exec bits intact → `./run.sh --help` and
+  `./run.command --help` both reach the app's argparse usage. Committed the
+  prebuilt standard zip under `dist/` (force-added; `dist/` is gitignored but the
+  `.pyz` was already tracked the same way) so the repo is deploy-ready.
+- `scripts/portable_README.md`: rewritten from Windows-only to a cross-platform
+  end-user guide (per-OS launch table, Gatekeeper note, your-own-docs for
+  mac/linux/win, options, privacy).
+- README.md: macOS `run.command` in Quick start; new "Standalone deployment zip"
+  subsection; `--zip` in the packaging commands; layout list updated.
+- Tests: `tests/test_posix_launchers.py` — a cross-platform `make_bundle`
+  contents+exec-bit assertion, plus POSIX smoke tests (skip on win32) for
+  `run.sh`, the `run.command`→`run.sh` delegation, and the portable bundle
+  launcher locating the `.pyz`. **202 pass** (+4), 2 skipped, ruff clean.
+
+**Build note:** only the *standard* zip was built/committed here (small, fully
+testable). The *embedded* zip (`--with-model --zip`, ~1 GB) still needs the
+maintainer to run it where the llama-cpp wheel + GGUF download are reachable —
+same constraint as the existing embedded `.pyz` (follow-up 12). The new
+launchers/bundle layout are identical for both variants, so no extra risk.
+
 ## Iteration 25 — 2026-06-19 (verified-health run; compliance-rate gauge)
 
 Routine run. Started healthy and confirmed it end-to-end. **198 tests pass, 2
@@ -1175,6 +1219,21 @@ Compliance Tracker) from the template, docx/md/txt loaders, offline tests.
     single sentences, and even then prefer a high-precision, elaboration-aware
     rule validated against that document — not a blind comma-splitter. Pairs
     naturally with follow-up 1 (a live quality review would confirm the call).
+15. **Claude-Design UI reskin — REQUESTED, not yet done (iter 26).** The user
+    first asked to "redesign the UI to Claude Design" alongside the macOS option,
+    then interrupted and re-scoped that turn to the macOS launcher + deployment
+    zip (both done). The reskin is still outstanding. The web UI
+    (`coach/webui.py`, ~1.4k lines) is a self-contained SPA already driven by CSS
+    custom properties in two `:root` blocks (dark default + `[data-theme=light]`,
+    ~lines 405–432), so a reskin is mostly a token swap plus a few typographic
+    touches — not a rewrite. Target Anthropic's design language: warm ivory/cream
+    background (~`#FAF9F5`/`#F0EEE6`), the clay-coral accent (~`#D97757`, brand
+    clay `#CC785C`), soft borders, generous whitespace, and a serif display face
+    (`ui-serif, Georgia`) for headings/`.view-title` with a clean system sans for
+    body. Make the light "Claude" theme the default (the inline pre-paint script
+    at ~line 397 currently defaults to dark/`prefers-color-scheme`). Keep the JS,
+    structure, and WCAG 2.2 AA focus/contrast work intact, and re-check contrast
+    ratios after the palette change. Confirm against `tests/test_webui.py`.
 
 ## Loop progress (production-quality, target ≥10 passes)
 
