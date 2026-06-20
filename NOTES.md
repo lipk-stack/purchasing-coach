@@ -1219,10 +1219,14 @@ Compliance Tracker) from the template, docx/md/txt loaders, offline tests.
     single sentences, and even then prefer a high-precision, elaboration-aware
     rule validated against that document — not a blind comma-splitter. Pairs
     naturally with follow-up 1 (a live quality review would confirm the call).
-15. **Claude-Design UI reskin — REQUESTED, not yet done (iter 26).** The user
-    first asked to "redesign the UI to Claude Design" alongside the macOS option,
-    then interrupted and re-scoped that turn to the macOS launcher + deployment
-    zip (both done). The reskin is still outstanding. The web UI
+15. **Claude-Design UI reskin — DECLINED by the user (iter 26). Do NOT do it.**
+    The user asked to "redesign the UI to Claude Design", then clarified they
+    meant using a "Claude Design tool" (no such tool/MCP is connected here — only
+    Drive/Gmail/Calendar/GitHub/Netlify/Microsoft-Learn). When offered an
+    in-code reskin instead, they replied **"dont do redesign"** — so this is
+    closed, not pending. Do not resurrect it in a future routine run unless the
+    user explicitly re-requests it. (Historical plan kept below for reference
+    only.) The web UI
     (`coach/webui.py`, ~1.4k lines) is a self-contained SPA already driven by CSS
     custom properties in two `:root` blocks (dark default + `[data-theme=light]`,
     ~lines 405–432), so a reskin is mostly a token swap plus a few typographic
