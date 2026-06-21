@@ -14,7 +14,7 @@ and simple pattern extraction -- no generative model involved.
 import re
 from collections.abc import Iterator
 
-from .base import BackendProtocol
+from .base import BackendProtocol, sentence_chunks
 
 
 class KeywordBackend(BackendProtocol):
@@ -34,7 +34,6 @@ class KeywordBackend(BackendProtocol):
         self._index = None  # InvertedIndex (lazy import)
         self._clauses: dict[str, str] = {}
         self._clause_reqs: dict[str, list] = {}
-        self._guideline_text: str = ""
         self._loaded: bool = False
 
     # ------------------------------------------------------------------
@@ -57,7 +56,6 @@ class KeywordBackend(BackendProtocol):
 
         self._clauses = clauses
         self._clause_reqs = clause_reqs
-        self._guideline_text = guideline_text
         self._index = InvertedIndex()
         self._index.build_from_guideline(guideline_text, clauses, clause_reqs)
         self._loaded = True
@@ -131,7 +129,7 @@ class KeywordBackend(BackendProtocol):
 
         full_response = "\n".join(response_parts)
         # Yield sentence-by-sentence for simulated streaming
-        yield from _sentence_chunks(full_response)
+        yield from sentence_chunks(full_response)
 
     def complete_json(
         self,
@@ -367,19 +365,3 @@ class KeywordBackend(BackendProtocol):
         }
 
 
-# --------------------------------------------------------------------------
-# Module-level helpers
-# --------------------------------------------------------------------------
-
-def _sentence_chunks(text: str, chunk_size: int = 40) -> Iterator[str]:
-    """Split *text* into small word-based chunks for simulated streaming.
-
-    Yields up to *chunk_size* words per chunk, preserving spacing between
-    chunks so the streamed output reads naturally when concatenated.
-    """
-    words = text.split()
-    for i in range(0, len(words), chunk_size):
-        chunk = " ".join(words[i : i + chunk_size])
-        if i + chunk_size < len(words):
-            chunk += " "
-        yield chunk

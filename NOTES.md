@@ -2,6 +2,56 @@
 
 Reference this file at the start of each routine run.
 
+## Iteration 28 — 2026-06-21 (YAGNI cleanup pass)
+
+Routine run, task: "Adopt YAGNI principles to refine the code and review the
+whole repo for cleanup." Entered healthy — **207 tests pass, 2 skipped, ruff
+clean** on `claude/tender-goodall-3gi9zh` (== `main` on entry; no stale-local-ref
+drift this run). **Drive source docs unchanged:** both
+`XXEON_IT_Procurement_Guideline.docx` and `TENDER_TEMPLATE.xlsx` still
+`modifiedTime 2026-06-10T13:05:11Z` (verified via an authoritative `parentId`
+listing of the "Purchasing Guideline" folder) — no sample refresh needed
+(follow-up 4/5).
+
+**Method:** ran `vulture` (confidence 60–100) over `coach/`+`scripts/`+tests and
+a dedicated whole-repo exploration for unused symbols, write-only fields,
+speculative abstractions, dead branches, and duplication. Cross-checked every
+candidate with grep before touching it — most 60%-confidence vulture hits were
+false positives (openpyxl cell `.font`/`.fill`/`.alignment` assignments have
+real side effects; `do_GET`/`do_POST`/`log_message` are `BaseHTTPRequestHandler`
+overrides; dataclass fields are serialised). Kept protocol-compliance params
+(`system`/`schema` unused by deterministic backends are required by
+`BackendProtocol`) and the acknowledged latin-1 decode safety net in
+`documents.py` — those are interface contract / cheap robustness, not YAGNI.
+
+**Removed (all dead state — write-only or never referenced; verified by grep):**
+- `coach.DEFAULT_MODEL` (`__init__.py`) — never imported; the Claude default
+  `"claude-opus-4-8"` lives in `claude_api.py` + `backends/__init__.py`.
+- `_guideline_text` field in **three** backends (`keyword`, `bm25`, `template`):
+  assigned in `__init__` and `load_guideline` but never read — those backends
+  retrieve via `_clauses`/`_clause_reqs`/`_index`, not the raw text.
+- `_answers` field in `TemplateBackend`: assigned in `__init__` and in
+  `complete_json` but never read.
+
+**De-duplicated:** `_sentence_chunks` was byte-for-byte identical in `keyword.py`
+and `bm25.py`; promoted to a single `coach.backends.base.sentence_chunks` (both
+backends already import from `.base`). Net `coach/`: +19/−46 lines across 5 files.
+
+**Verified:** `ruff` clean; **207 pass, 2 skipped** (unchanged — no test churn,
+so the removed code genuinely had no observers). Rebuilt the tracked
+`dist/purchasing-coach.pyz` (335 KB) + standard zip; `--help` works. End-to-end
+re-check (Template backend, "Cloud CRM SaaS, 20-person team") → **187-row**
+checklist spanning sections 4,5,6,7,9,10,11,12 (correctly omits hardware §8) —
+product behaviour intact. CHANGELOG Unreleased → Changed updated.
+
+**Scope calls (deliberately NOT done, to respect YAGNI's "don't churn working
+code" flip side):** did not delete a whole backend (7 backends is a lot, but
+each is selectable + documented + tested — removal is a feature decision for the
+user, see new follow-up 16); did not remove `stress_test.py` (ad-hoc manual
+harness, intentionally ruff-excluded in `pyproject.toml`, overlaps the pytest
+suite — see follow-up 16); did not add docstring "this param is unused" notes to
+protocol methods (busywork, no removal).
+
 ## Iteration 27 — 2026-06-20 (Procurement Brief sheet: interview traceability)
 
 Routine run. Entered healthy — **202 tests pass, 2 skipped, ruff clean** on
@@ -1292,6 +1342,17 @@ Compliance Tracker) from the template, docx/md/txt loaders, offline tests.
     at ~line 397 currently defaults to dark/`prefers-color-scheme`). Keep the JS,
     structure, and WCAG 2.2 AA focus/contrast work intact, and re-check contrast
     ratios after the palette change. Confirm against `tests/test_webui.py`.
+16. **Possible YAGNI follow-ups deferred from iter 28 (need a user decision —
+    these are feature/scope removals, not dead code).** (a) **Backend count:**
+    `keyword` and `bm25` are *both* deterministic retrieval backends — `bm25` is
+    the higher-quality superset (BM25+cosine+RRF), `keyword` is the zero-dep
+    fallback. If the project never ships without the retrieval package, one could
+    fold into the other. Don't do this in a routine cleanup — it changes the
+    public `--backend` surface and the auto-detect fallback chain; raise it with
+    the user first. (b) **`stress_test.py`** (root, ~16 KB, ruff-excluded) is an
+    ad-hoc manual harness that substantially duplicates the now-comprehensive
+    `tests/` suite. Likely deletable, but it's intentionally tracked/configured,
+    so confirm with the user before removing. Neither was actioned in iter 28.
 
 ## Loop progress (production-quality, target ≥10 passes)
 

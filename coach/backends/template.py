@@ -58,12 +58,10 @@ class TemplateBackend(BackendProtocol):
     def __init__(self):
         self._clauses: dict[str, str] = {}
         self._clause_reqs: dict[str, list] = {}
-        self._guideline_text: str = ""
         # Retained across calls so follow-up chat can reference the last
         # detected scenario.  Always re-detected from the prompt when
         # possible, so stale state never causes incorrect output.
         self._current_scenario: str | None = None
-        self._answers: dict[str, str] = {}
 
     # ------------------------------------------------------------------
     # BackendProtocol — optional hooks
@@ -77,7 +75,6 @@ class TemplateBackend(BackendProtocol):
         """Store guideline data for clause matching and citation."""
         self._clauses = clauses
         self._clause_reqs = clause_reqs
-        self._guideline_text = guideline_text
 
     def health_check(self) -> dict:
         """Always healthy — no external dependencies."""
@@ -449,7 +446,6 @@ class TemplateBackend(BackendProtocol):
 
         # Parse interview answers and evaluate conditions.
         answers = self._parse_interview(prompt)
-        self._answers = answers
 
         # Collect applicable section roots.
         sections: list[str] = list(scenario["always_sections"])

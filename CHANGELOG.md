@@ -68,6 +68,14 @@ Production-quality hardening pass.
   degenerate output. The embedded default context window is now 8192.
 
 ### Changed
+- **Internal YAGNI cleanup (no behaviour change).** Removed dead code surfaced
+  by a whole-repo review: the unused `coach.DEFAULT_MODEL` constant (the Claude
+  default lives in the backend), write-only `_guideline_text` fields stored but
+  never read by the keyword/BM25/template backends, and a write-only `_answers`
+  field in the template backend. The duplicated `_sentence_chunks` streaming
+  helper (identical copies in the keyword and BM25 backends) is now a single
+  shared `coach.backends.base.sentence_chunks`. No public behaviour changes; the
+  full test suite still passes.
 - **The embedded backend is now the default AI backend.** When no LM Studio /
   Ollama server is running and no `ANTHROPIC_API_KEY` is set, auto-detect uses
   the embedded SLM whenever `llama-cpp-python` is installed (resolving a model

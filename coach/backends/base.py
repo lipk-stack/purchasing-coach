@@ -74,3 +74,18 @@ class BackendProtocol(ABC):
         LLM backends ignore this (they receive the guideline via the system
         prompt). Retrieval-based backends build their index here.
         """
+
+
+def sentence_chunks(text: str, chunk_size: int = 40) -> Iterator[str]:
+    """Split *text* into small word-based chunks for simulated streaming.
+
+    Yields up to *chunk_size* words per chunk, preserving spacing between
+    chunks so the streamed output reads naturally when concatenated. Shared
+    by the deterministic retrieval backends, which have no real token stream.
+    """
+    words = text.split()
+    for i in range(0, len(words), chunk_size):
+        chunk = " ".join(words[i : i + chunk_size])
+        if i + chunk_size < len(words):
+            chunk += " "
+        yield chunk
