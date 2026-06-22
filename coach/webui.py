@@ -39,6 +39,12 @@ _SAFE_SESSION_ID = re.compile(r"[A-Za-z0-9_-]{1,64}\Z")
 # Cap request bodies so a bogus Content-Length can't exhaust memory.
 MAX_BODY_BYTES = 8 * 1024 * 1024
 
+# The server binds to 127.0.0.1, but a malicious web page the user has open can
+# still reach it via DNS rebinding (resolving an attacker-controlled hostname to
+# 127.0.0.1). Pinning the accepted Host header to loopback names blocks that:
+# a rebound request arrives with the attacker's hostname in Host and is rejected.
+_ALLOWED_HOSTS = frozenset({"127.0.0.1", "localhost", "[::1]", "::1"})
+
 log = logging.getLogger("coach.webui")
 
 
@@ -130,26 +136,11 @@ class WebUI:
 
     def analytics(self) -> dict:
         if not self._last_checklist:
-            return AnalyticsSnapshot().to_dict() if hasattr(AnalyticsSnapshot, 'to_dict') else {
-                "total_requirements": 0,
-                "by_section": {},
-                "mandatory_count": 0,
-                "optional_count": 0,
-                "coverage_pct": 0.0,
-                "section_heatmap": {},
-            }
-        snap = AnalyticsSnapshot.from_checklist(
+            return AnalyticsSnapshot().to_dict()
+        return AnalyticsSnapshot.from_checklist(
             self._last_checklist,
             total_clauses=len(self.coach.clauses),
-        )
-        return {
-            "total_requirements": snap.total_requirements,
-            "by_section": snap.by_section,
-            "mandatory_count": snap.mandatory_count,
-            "optional_count": snap.optional_count,
-            "coverage_pct": snap.coverage_pct,
-            "section_heatmap": snap.section_heatmap,
-        }
+        ).to_dict()
 
     def tender_start(self, item: str) -> dict:
         plan = self.coach.plan_interview(item)
@@ -232,8 +223,32 @@ class _Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass
 
+    def _host_allowed(self) -> bool:
+        """Reject requests whose Host header is not a loopback name.
+
+        Defends against DNS-rebinding: the listening socket is loopback-only,
+        but a browser tricked into rebinding an attacker hostname to 127.0.0.1
+        would send that hostname here. The port is stripped before comparison.
+        """
+        host = self.headers.get("Host", "")
+        # Strip the port, but not the colons inside a bracketed IPv6 literal.
+        if host.startswith("["):
+            hostname = host.split("]")[0] + "]"
+        else:
+            hostname = host.rsplit(":", 1)[0] if ":" in host else host
+        return hostname.lower() in _ALLOWED_HOSTS
+
+    def _reject_foreign_host(self) -> bool:
+        """Send 403 and return True when the Host header is not loopback."""
+        if self._host_allowed():
+            return False
+        self._json(403, {"error": "forbidden host"})
+        return True
+
     # -- routing --------------------------------------------------------------
     def do_GET(self):
+        if self._reject_foreign_host():
+            return
         path = self.path.split("?")[0]
         if path in ("/", "/index.html"):
             body = PAGE.encode("utf-8")
@@ -267,6 +282,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._json(404, {"error": "not found"})
 
     def do_POST(self):
+        if self._reject_foreign_host():
+            return
         path = self.path.split("?")[0]
         try:
             length = int(self.headers.get("Content-Length") or 0)
@@ -310,6 +327,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._json(500, {"error": str(exc)})
 
     def do_DELETE(self):
+        if self._reject_foreign_host():
+            return
         path = self.path.split("?")[0]
         if path.startswith("/api/sessions/"):
             sid = path[len("/api/sessions/"):]

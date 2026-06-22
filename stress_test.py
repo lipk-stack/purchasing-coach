@@ -226,7 +226,47 @@ def test_analytics():
     assert snap.coverage_pct > 0
     assert len(snap.by_section) == 3
     assert len(snap.section_heatmap) == 3
+    # Empty + populated snapshots both serialise to the dashboard JSON shape.
+    empty = AnalyticsSnapshot().to_dict()
+    assert empty["total_requirements"] == 0 and empty["by_section"] == {}
+    assert set(snap.to_dict()) == set(empty)
 check("AnalyticsSnapshot", test_analytics)
+
+# ---- Web server security (DNS-rebinding / host pinning) ----
+print("\n--- Web Server Security ---")
+
+def test_web_server_rejects_foreign_host():
+    import tempfile
+    import threading
+    import urllib.error
+    import urllib.request
+    from coach.webui import WebUI
+    from coach.backends import get_backend
+    b = get_backend("keyword")
+    ui = WebUI(Coach(guideline, b), b, "samples/guideline_text.md", None,
+               tempfile.mkdtemp())
+    httpd = ui.make_server(port=0)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    port = httpd.server_address[1]
+    try:
+        # Spoofed Host (DNS-rebinding) is refused.
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{port}/api/meta",
+            headers={"Host": "attacker.example"})
+        try:
+            urllib.request.urlopen(req, timeout=10)
+            raise AssertionError("foreign Host header was not rejected")
+        except urllib.error.HTTPError as exc:
+            assert exc.code == 403, f"expected 403, got {exc.code}"
+        # Loopback Host is served normally.
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{port}/api/meta",
+            headers={"Host": f"127.0.0.1:{port}"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            assert resp.status == 200
+    finally:
+        httpd.shutdown()
+check("Web server pins Host to loopback", test_web_server_rejects_foreign_host)
 
 # ---- Model serialization ----
 print("\n--- Model Serialization ---")

@@ -53,6 +53,14 @@ Production-quality hardening pass.
   requirements are folded into the compliance tracker — while a pure hardware
   commodity buy is not asked for a Software BOM.
 
+### Security
+- **Web UI pins the `Host` header to loopback (DNS-rebinding defence).** The
+  local server already binds to `127.0.0.1`, but a malicious page open in the
+  user's browser could still reach it by rebinding an attacker-controlled
+  hostname to `127.0.0.1`. Every request is now rejected with `403` unless its
+  `Host` header is a loopback name (`127.0.0.1`, `localhost`, `[::1]`), with the
+  port stripped before comparison. Legitimate loopback access is unchanged.
+
 ### Fixed
 - **Embedded model no longer loops forever.** Small GGUF models (the bundled
   Qwen2.5-1.5B) could stream the same phrase endlessly. Root causes addressed:

@@ -185,6 +185,24 @@ def test_oversized_body_rejected(server, monkeypatch):
     assert err.value.code == 413
 
 
+def test_foreign_host_header_is_rejected(server):
+    """DNS-rebinding defence: only loopback Host headers are served."""
+    base, _ = server
+    # A spoofed (attacker-controlled) Host is refused with 403...
+    req = urllib.request.Request(
+        base + "/api/meta", headers={"Host": "evil.example.com"})
+    with pytest.raises(urllib.error.HTTPError) as err:
+        urllib.request.urlopen(req, timeout=10)
+    assert err.value.code == 403
+
+    # ...while an explicit loopback Host (with port) is accepted.
+    port = base.rsplit(":", 1)[1]
+    req = urllib.request.Request(
+        base + "/api/meta", headers={"Host": f"localhost:{port}"})
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        assert resp.status == 200
+
+
 def test_session_id_traversal_is_neutralised(tmp_path, monkeypatch):
     sdir = tmp_path / "sessions"
     sdir.mkdir()

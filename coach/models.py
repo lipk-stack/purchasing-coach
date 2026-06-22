@@ -242,6 +242,16 @@ class AnalyticsSnapshot:
     coverage_pct: float = 0.0
     section_heatmap: dict[str, float] = field(default_factory=dict)
 
+    def to_dict(self) -> dict:
+        return {
+            "total_requirements": self.total_requirements,
+            "by_section": self.by_section,
+            "mandatory_count": self.mandatory_count,
+            "optional_count": self.optional_count,
+            "coverage_pct": self.coverage_pct,
+            "section_heatmap": self.section_heatmap,
+        }
+
     @classmethod
     def from_checklist(
         cls,
