@@ -58,6 +58,30 @@ def test_docx_missing_document_xml_raises(tmp_path):
         load_guideline(bad)
 
 
+def test_oversize_docx_is_refused(tmp_path, monkeypatch):
+    # A .docx whose word/document.xml expands past the cap is refused with a
+    # clear error rather than being decompressed into memory (zip-bomb guard).
+    from coach import documents
+
+    monkeypatch.setattr(documents, "_MAX_DOCX_XML_BYTES", 2000)
+    body = "".join(
+        f"<w:p><w:t>line {i} of a deliberately large document body</w:t></w:p>"
+        for i in range(200)
+    )
+    xml = (
+        '<?xml version="1.0"?>'
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/'
+        'wordprocessingml/2006/main">'
+        f"<w:body>{body}</w:body></w:document>"
+    )
+    assert len(xml.encode()) > 2000  # sanity: would exceed the (patched) cap
+    big = tmp_path / "huge.docx"
+    with zipfile.ZipFile(big, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("word/document.xml", xml)
+    with pytest.raises(ValueError, match="too large to process"):
+        documents.load_guideline(big)
+
+
 def test_non_utf8_text_file_is_read(tmp_path):
     # Raw cp1252 bytes (0x96 en-dash, 0x92 right quote) that are invalid UTF-8.
     f = tmp_path / "win.txt"

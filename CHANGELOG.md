@@ -60,6 +60,14 @@ Production-quality hardening pass.
   hostname to `127.0.0.1`. Every request is now rejected with `403` unless its
   `Host` header is a loopback name (`127.0.0.1`, `localhost`, `[::1]`), with the
   port stripped before comparison. Legitimate loopback access is unchanged.
+- **`.docx` guideline loader is bounded against zip bombs.** A `.docx` is a zip,
+  and its `word/document.xml` was previously decompressed into memory in full —
+  a file that is tiny on disk but expands to gigabytes (a zip bomb, or a corrupt
+  file with a malformed size header) could exhaust memory. The loader now refuses
+  any `word/document.xml` whose text expands past a 64 MiB cap (vast headroom for
+  any real guideline) and never holds more than the cap in memory, defending even
+  against a header that under-reports the true expanded size. Legitimate
+  documents are unaffected and the error message is clear and actionable.
 
 ### Fixed
 - **Embedded model no longer loops forever.** Small GGUF models (the bundled

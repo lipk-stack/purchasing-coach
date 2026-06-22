@@ -11,6 +11,13 @@ from pathlib import Path
 
 _W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 
+# A .docx is a zip; its word/document.xml decompresses to plain text that is
+# normally tens of KB (the sample guideline is ~40 KB). Cap how much we will
+# decompress so a malformed or zip-bomb file — tiny on disk, huge when expanded
+# — cannot exhaust memory on the user's machine. 64 MiB is vast headroom for any
+# real guideline while still bounding the damage from a hostile or broken file.
+_MAX_DOCX_XML_BYTES = 64 * 1024 * 1024
+
 
 def load_guideline(path: str | Path) -> str:
     """Return the guideline document as plain text with headings preserved.
@@ -64,16 +71,35 @@ def _read_text_file(path: Path) -> str:
 def _load_docx(path: Path) -> str:
     try:
         with zipfile.ZipFile(path) as zf:
-            data = zf.read("word/document.xml")
+            try:
+                info = zf.getinfo("word/document.xml")
+            except KeyError as exc:
+                raise ValueError(
+                    f"'{path.name}' is missing word/document.xml — not a valid "
+                    ".docx file."
+                ) from exc
+            # Fast, clear rejection for a bomb that honestly declares its size.
+            if info.file_size > _MAX_DOCX_XML_BYTES:
+                raise ValueError(
+                    f"'{path.name}' is too large to process: its text content "
+                    f"declares {info.file_size:,} bytes "
+                    f"(limit {_MAX_DOCX_XML_BYTES:,}). "
+                    "Check that this is a real guideline document."
+                )
+            # Bounded read: also defends against a header that under-reports the
+            # true expanded size. We never hold more than the cap in memory.
+            with zf.open(info) as member:
+                data = member.read(_MAX_DOCX_XML_BYTES + 1)
+            if len(data) > _MAX_DOCX_XML_BYTES:
+                raise ValueError(
+                    f"'{path.name}' expands to more than "
+                    f"{_MAX_DOCX_XML_BYTES:,} bytes of text and was refused as a "
+                    "possible zip bomb."
+                )
     except zipfile.BadZipFile as exc:
         raise ValueError(
             f"'{path.name}' is not a valid .docx file (corrupt, or not a Word "
             "document). If it's a .doc, re-save it as .docx."
-        ) from exc
-    except KeyError as exc:
-        raise ValueError(
-            f"'{path.name}' is missing word/document.xml — not a valid .docx "
-            "file."
         ) from exc
 
     try:

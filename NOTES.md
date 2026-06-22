@@ -2,6 +2,68 @@
 
 Reference this file at the start of each routine run.
 
+## Iteration 30 — 2026-06-22 (docx zip-bomb guard; whole-repo YAGNI review)
+
+Routine run, task: harden for security/robustness, apply Y.A.G.N.I cleanup,
+review the whole repo, run the stress test, check into main, and log follow-ups.
+Entered healthy — **207 tests pass, 2 skipped, ruff clean, stress test all
+PASS** on `claude/dreamy-carson-0ur720`. **Topology note for future runs (read
+this before judging the main gap):** the *local* git proxy reports
+`origin/main` at `95b5f6b "Initial commit"`, but that ref is **stale** — the
+real GitHub default branch (via the GitHub MCP `list_commits`) was at `ef11c2a`,
+i.e. **identical to the working branch HEAD on entry**. Don't trust the local
+`origin/main`; check GitHub through the MCP. **Drive source docs unchanged:**
+both `XXEON_IT_Procurement_Guideline.docx` and `TENDER_TEMPLATE.xlsx` still
+`modifiedTime 2026-06-10T13:05:11Z` (verified via an authoritative `parentId`
+listing of the "Purchasing Guideline" folder) — no sample refresh (follow-up 5).
+
+**Security/robustness shipped — `.docx` loader bounded against zip bombs.** A
+`.docx` is a zip; the loader previously did `zf.read("word/document.xml")`, fully
+decompressing that member into memory with **no bound**. A file tiny on disk but
+huge when expanded (a zip bomb, or a corrupt member with a malformed size
+header) could OOM the app on a user's laptop — and this is the only
+*compression-amplified* input (`.txt`/`.md` are bounded by their on-disk size).
+`coach/documents.py` now: (1) reads the member's metadata with `getinfo` and
+rejects a declared `file_size` over a 64 MiB cap with a clear, actionable error;
+(2) does a **bounded** `zf.open(info).read(cap + 1)` so we never hold more than
+the cap in memory — this defends even against a header that *under-reports* the
+true expanded size. 64 MiB is vast headroom (the real guideline's
+`document.xml` is tens of KB), so legitimate documents are unaffected. This
+closes the long-standing "zip-bomb / size cap on the .docx loader" item that
+sat in the standing hardening follow-up.
+
+**Whole-repo YAGNI review (deliberately *no* churn).** Ran `vulture` (≥80%
+confidence) over `coach/`+`scripts/`; the only hit was `log_message(self, fmt,
+...)` in `webui.py` — a **required `BaseHTTPRequestHandler` override** that
+silences access logging (the param is unused by design). Removing/renaming it
+would be churn, so it stays (same known false positive iteration 28 recorded).
+The previous run's vulture sweep was thorough; the tree is clean and I did not
+manufacture cleanup — that's YAGNI's flip side ("don't churn working code").
+
+**Verification this round:** `ruff` clean; **208 pass** (+1 new
+`test_oversize_docx_is_refused`), 2 skipped; `stress_test.py` **all PASS** (+1
+"Oversize .docx refused (zip-bomb guard)" case under a new *Document Loader
+Robustness* section, using a shrunk cap so it stays fast). Rebuilt the tracked
+`dist/purchasing-coach.pyz` (336 KB) + standard zip (374 KB) and **smoke-tested
+the .pyz against the real `.docx` guideline** — it loads through the new bounded
+loader and the CLI starts cleanly. CHANGELOG Unreleased → Security updated.
+Checked into main and pushed; also on working branch
+`claude/dreamy-carson-0ur720`. Drive companion iteration-notes doc created.
+
+## Iteration 29 — 2026-06-22 (web-UI DNS-rebinding defence) — backfilled
+
+*Backfilled into the canonical log: the `ef11c2a` run shipped but logged only to
+a Drive companion doc, leaving a hole here.* Security: the local web server
+binds to `127.0.0.1`, but a malicious page in the user's browser could still
+reach it via **DNS rebinding** (an attacker hostname resolved to `127.0.0.1`).
+Every request now requires a loopback `Host` header (`127.0.0.1` / `localhost` /
+`[::1]`, port stripped) and is rejected with `403` otherwise — covered by a
+real-HTTP unit test and a stress-test case. YAGNI cleanup: `AnalyticsSnapshot`
+now owns a `to_dict()` used by `webui.analytics()` for both the empty and
+populated paths, removing a dead `hasattr()` branch and a hand-rolled duplicate
+of the same dict shape. Verified ruff clean, full pytest green (+2), stress test
+green (+1), `.pyz` rebuilt & smoke-tested. Shipped as commit `ef11c2a` on main.
+
 ## Iteration 28 — 2026-06-21 (YAGNI cleanup pass)
 
 Routine run, task: "Adopt YAGNI principles to refine the code and review the

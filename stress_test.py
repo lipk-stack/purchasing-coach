@@ -232,6 +232,37 @@ def test_analytics():
     assert set(snap.to_dict()) == set(empty)
 check("AnalyticsSnapshot", test_analytics)
 
+# ---- Document loader robustness (zip-bomb / size cap) ----
+print("\n--- Document Loader Robustness ---")
+
+def test_docx_size_cap_refuses_bomb():
+    import tempfile, zipfile as _zip
+    import coach.documents as _docs
+    orig = _docs._MAX_DOCX_XML_BYTES
+    _docs._MAX_DOCX_XML_BYTES = 2000  # shrink the cap so the test stays fast
+    try:
+        body = "".join(
+            f"<w:p><w:t>row {i} padding text padding text</w:t></w:p>"
+            for i in range(300)
+        )
+        xml = (
+            '<?xml version="1.0"?><w:document xmlns:w="http://schemas.'
+            'openxmlformats.org/wordprocessingml/2006/main">'
+            f"<w:body>{body}</w:body></w:document>"
+        )
+        assert len(xml.encode()) > 2000
+        path = tempfile.mktemp(suffix=".docx")
+        with _zip.ZipFile(path, "w", _zip.ZIP_DEFLATED) as zf:
+            zf.writestr("word/document.xml", xml)
+        try:
+            _docs.load_guideline(path)
+            raise AssertionError("oversize .docx was not refused")
+        except ValueError as e:
+            assert "too large to process" in str(e), f"unexpected error: {e}"
+    finally:
+        _docs._MAX_DOCX_XML_BYTES = orig
+check("Oversize .docx refused (zip-bomb guard)", test_docx_size_cap_refuses_bomb)
+
 # ---- Web server security (DNS-rebinding / host pinning) ----
 print("\n--- Web Server Security ---")
 
