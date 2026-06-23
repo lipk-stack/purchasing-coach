@@ -329,6 +329,48 @@ def test_web_server_rejects_foreign_host():
         httpd.shutdown()
 check("Web server pins Host to loopback", test_web_server_rejects_foreign_host)
 
+# ---- LLM backend robustness (bounded response read) ----
+print("\n--- LLM Backend Robustness ---")
+
+def test_backend_refuses_oversize_response():
+    """A hostile/buggy LLM endpoint cannot OOM the client with a huge body."""
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from coach.backends import openai_compat
+    from coach.backends.openai_compat import BackendError, OpenAICompatBackend
+
+    class Flood(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+        def do_GET(self):
+            if self.path == "/api/v0/models":
+                self.send_error(404)
+                return
+            body = b'{"data": [' + b'{"id": "x"},' * 100_000 + b'{"id": "y"}]}'
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), Flood)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    port = httpd.server_address[1]
+    orig = openai_compat.MAX_RESPONSE_BYTES
+    openai_compat.MAX_RESPONSE_BYTES = 4096  # shrink so the test stays fast
+    try:
+        be = OpenAICompatBackend(f"http://127.0.0.1:{port}/v1", model="m")
+        try:
+            be.list_models()
+            raise AssertionError("oversize response was not refused")
+        except BackendError as e:
+            assert "implausibly large" in str(e), f"unexpected error: {e}"
+    finally:
+        openai_compat.MAX_RESPONSE_BYTES = orig
+        httpd.shutdown()
+check("Oversize LLM response refused (memory guard)",
+      test_backend_refuses_oversize_response)
+
 # ---- Model serialization ----
 print("\n--- Model Serialization ---")
 

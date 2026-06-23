@@ -2,6 +2,85 @@
 
 Reference this file at the start of each routine run.
 
+## Iteration 32 — 2026-06-23 (LLM backend: bounded response read)
+
+Routine run, task: harden for security/robustness, apply Y.A.G.N.I cleanup,
+review the whole repo, run the stress test, check into main, log follow-ups.
+Entered healthy — **211 pass, 2 skipped, ruff clean, stress test all PASS** on
+`claude/dreamy-carson-98yyv9`. **Topology:** the real GitHub default branch
+(via the GitHub MCP `list_commits`) was at `d438003` on entry — **identical to
+the working branch HEAD**; the local `origin/main` ref remains unreliable, so I
+verified through the MCP as the standing topology note advises. Drive source
+docs unchanged (both `XXEON_IT_Procurement_Guideline.docx` and
+`TENDER_TEMPLATE.xlsx` still `modifiedTime 2026-06-10T13:05:11Z`, verified via a
+`parentId` listing of the "Purchasing Guideline" folder) — no sample refresh
+(follow-up 5).
+
+**Security/robustness shipped — `OpenAICompatBackend` bounds the response body
+it buffers.** The `.docx` loader was bounded against memory amplification in
+iter 30, but the *network* counterpart was still open: the non-streaming reads
+(`list_models`, `_lmstudio_model`, `_request_json`) did `json.load(resp)`,
+buffering the **entire** HTTP body with no bound. The endpoint can be a remote,
+user-configured provider (`--base-url`/`--provider` advertises OpenAI, Groq,
+Together, Gemini, vLLM, …), so a hostile or malfunctioning server could return a
+multi-GB body and OOM the client. (Tell that the *error* body was already capped
+at `[:500]` but the *success* body wasn't — a clear, asymmetric gap.) New
+`_read_bounded(resp)` reads one byte past a 32 MiB cap (`MAX_RESPONSE_BYTES`),
+rejecting an over-long body with a clear `BackendError` and never buffering more
+than the cap; 32 MiB is vast headroom (real `/models`/`/chat/completions`
+replies are tens of KB). The **streaming** chat path is naturally incremental
+and was already safe — left untouched. Model-discovery (`_lmstudio_model`) now
+also swallows the oversize `BackendError` so a flood on the probe degrades to
+"no model found" rather than crashing construction.
+
+**Whole-repo YAGNI review (no churn).** `vulture coach scripts` (≥80%) again
+surfaced only the known false positive — `log_message(self, fmt, ...)` in
+`webui.py`, a required `BaseHTTPRequestHandler` override whose `fmt` is unused by
+design (it silences access logging). Removing it would be churn, so it stays.
+The tree is clean from prior passes; YAGNI's flip side is "don't churn working
+code", so no edits beyond the hardening.
+
+**Verification this round:** ruff clean; pytest **215 pass, 2 skipped** (+4: 3
+`_read_bounded` unit tests incl. an exactly-at-cap boundary, 1 real-HTTP
+oversize-refusal via a `FloodServer` with a shrunk cap); `stress_test.py` all
+PASS (+1 "Oversize LLM response refused (memory guard)" under a new *LLM Backend
+Robustness* section, also using a shrunk cap so it stays fast). Rebuilt
+`dist/purchasing-coach.pyz` (339 KB) + standard zip (378 KB) and **smoke-tested
+the .pyz end-to-end** against the real XXEON `.docx`: a scripted `/tender` run
+with the keyword backend wrote a valid `TENDER_CHECKLIST_*.xlsx` (24 KB).
+CHANGELOG Unreleased → Security updated. Checked into main and pushed; also on
+working branch `claude/dreamy-carson-98yyv9`.
+
+### Follow-ups for the next run (standing list, carried forward)
+
+1. **Canonical Drive master doc still stale.** The repo `NOTES.md` is the
+   gapless canonical log; the master Drive doc "Purchasing Coach – Notes" still
+   only logs iterations 1–2 and Drive tooling can CREATE docs but not edit that
+   one in place. Next run: create a fresh superseding master doc summarising the
+   repo's current v2.1 state (embedded GGUF backend; keyword/BM25/template
+   retrieval; accessible web UI with DNS-rebinding + docx-size + bounded-LLM-read
+   hardening; Procurement Brief sheet; Review & Approval gauge; portable .pyz +
+   standalone zip; macOS/Win/Linux launchers).
+2. **Live LLM run still untested.** No local LLM server or API key in the build
+   env, so real model output quality is unverified — only mocked and tiny-embedded
+   paths are exercised. Do a real `/tender` session (one hardware + one SaaS item)
+   against LM Studio / Ollama with a ~7B instruct model.
+3. **Real template fidelity.** `samples/TENDER_TEMPLATE.xlsx` and the sample
+   guideline are reconstructions. At runtime the user's real `--template` is
+   filled and its formatting preserved, but a diff against the genuine binary
+   template in Drive is still pending.
+4. **Optional Drive round-trip:** upload generated checklists back to the
+   "Purchasing Guideline" folder after a tender run (download tooling exists;
+   upload via `create_file`).
+5. **Guideline sync:** if the Drive guideline/template change from
+   `2026-06-10T13:05:11Z`, refresh `samples/guideline_text.md` and rerun
+   `scripts/make_samples.py`.
+6. **Coverage section-mapping (from iter 31):** for non-XXEON numbering the
+   checklist is produced from the doc's own clauses, but `CORE_SECTIONS`/
+   `_COVERAGE` and the coverage questions only fire on matching section numbers.
+   Making the coverage mapping configurable is possible future work — only if a
+   real non-XXEON guideline appears (keep Y.A.G.N.I).
+
 ## Iteration 31 — 2026-06-23 (user-reported: real files "don't work")
 
 User report: *"when I replace the xlsx and docx files with my real files it does

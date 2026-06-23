@@ -20,6 +20,15 @@ OLLAMA_URL = "http://localhost:11434/v1"
 # Generous timeout: local models on corporate laptops can be slow.
 REQUEST_TIMEOUT = 600
 
+# Cap how much of a non-streaming response body we will buffer into memory.
+# The endpoint can be a remote, user-configured provider (--base-url to OpenAI,
+# Groq, Together, Gemini, ...), so a hostile or malfunctioning server could
+# return an enormous body that json.load would buffer in full and exhaust
+# memory — the same amplification risk the .docx loader guards against. Real
+# /models and /chat/completions replies are tens of KB; 32 MiB is vast
+# headroom. The streaming path is naturally incremental and not buffered here.
+MAX_RESPONSE_BYTES = 32 * 1024 * 1024
+
 # Well-known provider presets.  Pass ``provider=`` to the constructor or
 # override with explicit ``base_url`` + ``api_key``.
 PROVIDER_PRESETS: dict[str, dict] = {
@@ -182,8 +191,9 @@ class OpenAICompatBackend(BackendProtocol):
         )
         try:
             with urllib.request.urlopen(req, timeout=10) as resp:
-                body = json.load(resp)
-        except (urllib.error.URLError, OSError, json.JSONDecodeError):
+                body = json.loads(_read_bounded(resp))
+        except (urllib.error.URLError, OSError, json.JSONDecodeError,
+                BackendError):
             return None
         chat = [
             m
@@ -205,7 +215,7 @@ class OpenAICompatBackend(BackendProtocol):
         )
         try:
             with urllib.request.urlopen(req, timeout=10) as resp:
-                body = json.load(resp)
+                body = json.loads(_read_bounded(resp))
         except (urllib.error.URLError, OSError, json.JSONDecodeError) as exc:
             raise BackendError(f"cannot reach {self.base_url}: {exc}") from exc
         return [
@@ -252,7 +262,28 @@ class OpenAICompatBackend(BackendProtocol):
 
     def _request_json(self, path: str, payload: dict) -> dict:
         with self._request(path, payload) as resp:
-            return json.load(resp)
+            return json.loads(_read_bounded(resp))
+
+
+# --------------------------------------------------------------------------
+# Bounded response read
+# --------------------------------------------------------------------------
+def _read_bounded(resp) -> bytes:
+    """Read a response body, refusing one larger than ``MAX_RESPONSE_BYTES``.
+
+    ``json.load(resp)`` would buffer the whole body; against a remote,
+    user-configured endpoint a hostile or buggy server could return an
+    enormous reply and exhaust memory. Reading one byte past the cap lets us
+    detect (without buffering the whole thing) that the body is over-long and
+    reject it with a clear error instead.
+    """
+    data = resp.read(MAX_RESPONSE_BYTES + 1)
+    if len(data) > MAX_RESPONSE_BYTES:
+        raise BackendError(
+            f"the LLM server returned more than {MAX_RESPONSE_BYTES:,} bytes; "
+            "refusing to buffer an implausibly large response."
+        )
+    return data
 
 
 # --------------------------------------------------------------------------

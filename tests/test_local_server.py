@@ -8,6 +8,8 @@ import pytest
 from openpyxl import load_workbook
 
 from coach.backends import OpenAICompatBackend
+from coach.backends import openai_compat
+from coach.backends.openai_compat import BackendError
 from coach.llm import Coach
 from coach.tender import run_tender_flow
 
@@ -98,3 +100,39 @@ def test_full_flow_over_http(server, tmp_path):
             for r in range(1, wb["Tender Information"].max_row + 1)}
     assert info["Purchase Item"] == "Backup SaaS"
     assert info["Issue Date"] == "TBC"  # unanswered fields default to TBC
+
+
+class FloodServer(BaseHTTPRequestHandler):
+    """A hostile server that answers /v1/models with an over-long body."""
+
+    def log_message(self, *args):
+        pass
+
+    def do_GET(self):
+        if self.path == "/api/v0/models":
+            self.send_error(404)
+            return
+        # Far larger than the (test-shrunk) cap, to prove the read is bounded.
+        body = b'{"data": [' + b'{"id": "x"},' * 100_000 + b'{"id": "y"}]}'
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+
+@pytest.fixture()
+def flood_server():
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), FloodServer)
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    yield f"http://127.0.0.1:{httpd.server_address[1]}/v1"
+    httpd.shutdown()
+
+
+def test_oversize_response_is_refused(flood_server, monkeypatch):
+    # Shrink the cap so the test stays small and fast; the guard is the same.
+    monkeypatch.setattr(openai_compat, "MAX_RESPONSE_BYTES", 4096)
+    be = OpenAICompatBackend(flood_server, model="m")  # skip model discovery
+    with pytest.raises(BackendError, match="implausibly large"):
+        be.list_models()

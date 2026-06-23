@@ -68,6 +68,17 @@ Production-quality hardening pass.
   any real guideline) and never holds more than the cap in memory, defending even
   against a header that under-reports the true expanded size. Legitimate
   documents are unaffected and the error message is clear and actionable.
+- **LLM backend bounds the response body it buffers into memory.** The
+  OpenAI-compatible backend can be pointed at a remote, user-configured endpoint
+  (`--base-url`/`--provider` for OpenAI, Groq, Together, Gemini, …), so a hostile
+  or malfunctioning server could return a huge `/models` or `/chat/completions`
+  body that `json.load` would buffer in full and exhaust memory — the same
+  amplification risk the `.docx` loader guards against. The non-streaming reads
+  now refuse any body over a 32 MiB cap (vast headroom for real replies, which
+  are tens of KB) with a clear error, reading only one byte past the cap to
+  detect the overflow. The streaming chat path is naturally incremental and was
+  already unaffected. Error bodies were already truncated; this closes the
+  matching gap on success bodies.
 
 ### Fixed
 - **Your own `.docx` guideline now produces a checklist instead of an empty

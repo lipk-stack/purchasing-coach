@@ -1,11 +1,15 @@
 """OpenAI-compatible backend: JSON extraction, format fallback, presets."""
 
+import io
+
 import pytest
 
 from coach.backends.openai_compat import (
     LMSTUDIO_URL,
+    MAX_RESPONSE_BYTES,
     BackendError,
     OpenAICompatBackend,
+    _read_bounded,
     extract_json,
 )
 
@@ -79,3 +83,19 @@ def test_complete_json_unexpected_shape_raises(monkeypatch):
     monkeypatch.setattr(be, "_request_json", lambda p, pl: {"weird": True})
     with pytest.raises(BackendError, match="unexpected response shape"):
         be.complete_json("sys", "prompt", {}, "plan")
+
+
+# ----------------------------- bounded response read -----------------------
+def test_read_bounded_passes_small_body():
+    assert _read_bounded(io.BytesIO(b'{"data": []}')) == b'{"data": []}'
+
+
+def test_read_bounded_allows_body_at_the_cap():
+    body = b"x" * MAX_RESPONSE_BYTES
+    assert _read_bounded(io.BytesIO(body)) == body
+
+
+def test_read_bounded_rejects_oversize_body():
+    body = b"x" * (MAX_RESPONSE_BYTES + 1)
+    with pytest.raises(BackendError, match="implausibly large"):
+        _read_bounded(io.BytesIO(body))
