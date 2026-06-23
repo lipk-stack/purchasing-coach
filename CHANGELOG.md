@@ -9,6 +9,16 @@ to follow [Semantic Versioning](https://semver.org/).
 Production-quality hardening pass.
 
 ### Added
+- **Chat answers cite the guideline's own section numbers and support nested
+  numbering.** The assistant is now instructed to put the guideline's section /
+  clause number (using that guideline's exact numbering, e.g. `4.1`, `5.6`)
+  first and in bold next to each point it relies on, and to use a nested,
+  indented numbered list when a section has several sub-points so the reply
+  mirrors the guideline hierarchy (section `4` → clauses `4.1`, `4.2`). The web
+  UI's chat markdown renderer now nests indented bullet/numbered lists inside
+  their parent item (an indentation-aware list stack) instead of flattening
+  them, carrying each level's source ordinal onto `<li value="N">` so numbering
+  is faithful at every depth. Flat lists render exactly as before.
 - **Procurement Brief sheet capturing the reverse-prompting interview.** Every
   generated workbook now carries a *Procurement Brief* sheet (placed right after
   *Tender Information*) that records the purchase item, category, and the full

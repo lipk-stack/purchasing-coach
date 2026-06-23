@@ -1093,9 +1093,26 @@ function md(src){
   const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   const inline=s=>esc(s).replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>')
     .replace(/`([^`]+)`/g,'<code>$1</code>');
-  let html='',list=null,table=false,fence=false,fenceBuf=[];
-  const closeList=()=>{if(list){html+=`</${list}>`;list=null;}};
+  let html='',table=false,fence=false,fenceBuf=[];
+  // Stack of open list levels for indentation-based nesting. Each level holds
+  // exactly one open <li>, so closing a level emits </li></tag>.
+  const stack=[];
+  const closeList=()=>{while(stack.length)html+='</li></'+stack.pop().tag+'>';};
   const closeTable=()=>{if(table){html+='</table>';table=false;}};
+  const openItem=(tag,val,txt)=>'<li'+(tag==='ol'&&val?' value="'+val+'"':'')+'>'+inline(txt);
+  const listItem=(indent,tag,val,txt)=>{
+    // Dedent: close any deeper levels until the top is at/above this indent.
+    while(stack.length&&indent<stack[stack.length-1].indent)
+      html+='</li></'+stack.pop().tag+'>';
+    const top=stack[stack.length-1];
+    if(top&&indent===top.indent){
+      if(top.tag===tag){html+='</li>'+openItem(tag,val,txt);}      // sibling
+      else{html+='</li></'+top.tag+'>';stack.pop();                // switch ul<->ol
+        html+='<'+tag+'>'+openItem(tag,val,txt);stack.push({tag,indent});}
+    }else{                                                         // deeper / first
+      html+='<'+tag+'>'+openItem(tag,val,txt);stack.push({tag,indent});
+    }
+  };
   for(const line of src.split('\n')){
     if(fence){if(/^\s*```/.test(line)){html+='<pre>'+esc(fenceBuf.join('\n'))+'</pre>';fence=false;fenceBuf=[];}else fenceBuf.push(line);continue;}
     if(/^\s*```/.test(line)){closeList();closeTable();fence=true;continue;}
@@ -1104,14 +1121,15 @@ function md(src){
       const tag=table?'td':'th';if(!table){html+='<table>';table=true;}
       html+='<tr>'+cells.map(c=>`<${tag}>${c}</${tag}>`).join('')+'</tr>';continue;}
     closeTable();
-    const h=line.match(/^#{1,6}\s+(.*)/);const li=line.match(/^\s*[-*+]\s+(.*)/);const num=line.match(/^\s*(\d+)[.)]\s+(.*)/);
+    const h=line.match(/^#{1,6}\s+(.*)/);
+    const li=line.match(/^(\s*)[-*+]\s+(.*)/);
+    const num=line.match(/^(\s*)(\d+)[.)]\s+(.*)/);
+    const indentOf=s=>s.replace(/\t/g,'  ').length;
     if(h){closeList();html+='<div class="h">'+inline(h[1])+'</div>';}
-    else if(li){if(list!=='ul'){closeList();html+='<ul>';list='ul';}html+='<li>'+inline(li[1])+'</li>';}
-    else if(num){if(list!=='ol'){closeList();html+='<ol>';list='ol';}
-      // Carry the source ordinal so a list interrupted by a sub-bullet group
-      // (which closes and reopens the <ol>) keeps counting instead of every
-      // item restarting at 1.
-      html+='<li value="'+num[1]+'">'+inline(num[2])+'</li>';}
+    // Indented bullet/number nests inside the item above it; the source ordinal
+    // is carried onto <li value="N"> so numbering is faithful at every level.
+    else if(li){listItem(indentOf(li[1]),'ul',null,li[2]);}
+    else if(num){listItem(indentOf(num[1]),'ol',num[2],num[3]);}
     else if(!line.trim()){closeList();}
     else{closeList();html+='<p>'+inline(line)+'</p>';}
   }

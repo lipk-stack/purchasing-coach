@@ -2,6 +2,52 @@
 
 Reference this file at the start of each routine run.
 
+## Iteration 34 — 2026-06-23 (cite section numbers; nested numbering in chat)
+
+User request: *"cite reference to the section numbering in the guideline when
+answering, where needed create nested numbering."* Two coordinated changes.
+
+**Prompt (`coach/llm.py::SYSTEM_TEMPLATE`).** Strengthened the citation rule to
+put the guideline's own section/clause number (using *that guideline's* exact
+numbering, e.g. `4.1`, `5.6`) first and in bold next to each point relied on,
+and added an explicit instruction to use NESTED numbering when a section has
+several sub-points — number parents `1., 2., 3.` and indent sub-points two
+spaces — so the reply mirrors the guideline hierarchy. Works for any guideline's
+numbering, not just XXEON's (the model echoes whatever this guideline uses).
+
+**Renderer (`coach/webui.py::md`).** Previously list handling was *flat*: a
+single `list` flag, so indented sub-items were rendered as siblings (nesting was
+impossible). Rewrote it around an indentation-aware **stack** of open list
+levels (each level holds exactly one open `<li>`; closing a level emits
+`</li></tag>`). A more-indented item opens a nested `<ol>`/`<ul>` *inside* the
+current `<li>`; a dedent closes levels back; a same-indent line is a sibling (or
+switches `ul`<->`ol`). The source ordinal is still carried onto
+`<li value="N">` at every depth, so the iter-33 "interrupted list keeps
+counting" fix is preserved AND true nested numbering now renders.
+
+**Why this shape (YAGNI):** I did not add CSS counters for dotted `1.1` display
+numbers — nested `<ol>`s already render indented per-level numbering, and the
+guideline's dotted clause numbers (`4.1`) are cited inline as bold text, which
+is the actual "reference to the section numbering" the user asked for. A `value`
+attribute also can't coexist with CSS counter overrides, so counters would have
+fought the faithful-ordinal fix. Left alone unless a user specifically wants
+`1.1`-style display.
+
+**Verification (all via the *shipped* `md()` under node, plus pytest/stress):**
+ruff clean; pytest **220 pass, 2 skipped** (+2 in `tests/test_webui_markdown.py`:
+nested sub-points nest inside the parent `<li>` with faithful per-level
+ordinals; flat bullet list unchanged — the iter-33 interrupted/contiguous cases
+still pass); `stress_test.py` all PASS (the *Web UI Rendering* case now also
+asserts nesting). Rebuilt `dist/purchasing-coach.pyz` (340 KB) + standard zip
+(379 KB) and confirmed both the nested-list renderer and the citation/nesting
+prompt are bundled. CHANGELOG Unreleased → Added updated. Checked into main;
+also on working branch `claude/dreamy-carson-98yyv9`.
+
+*Carried-forward note:* `md()` nests by indentation; if a model emits nested
+points with NO indentation (flat `1.`/`2.` that are semantically sub-items), the
+renderer can't infer nesting — the prompt now asks for two-space indents to make
+the hierarchy explicit. Revisit only if real outputs show otherwise.
+
 ## Iteration 33 — 2026-06-23 (user-reported: chat numbering + duplicate answer)
 
 User report (with screenshots): on their own guideline the chat answer's

@@ -67,6 +67,29 @@ def test_contiguous_ordered_list_still_numbers_correctly():
     assert _ordinals(_run_md(text)) == ["1", "2", "3"]
 
 
+def test_indented_sub_points_nest_inside_their_parent_item():
+    # Indented sub-points must render as a nested list inside the parent <li>,
+    # with each level's numbering faithful to the source.
+    text = "\n".join([
+        "1. **Contract requirements (4)**",
+        "  1. Stamp duty borne by vendor (4.1)",
+        "  2. Define all deliverables (4.1)",
+        "2. **Pricing (4.3)**",
+        "  - Itemise all costs",
+    ])
+    html = _run_md(text)
+    # A nested <ol> sits inside the first parent item, before that item closes.
+    assert '<li value="1"><strong>Contract requirements (4)</strong><ol>' in html
+    assert '<ol><li value="1">Stamp duty' in html
+    assert '<li value="2">Define all deliverables (4.1)</li></ol></li>' in html
+    # The second parent carries a nested bullet list and keeps ordinal 2.
+    assert '<li value="2"><strong>Pricing (4.3)</strong><ul>' in html
+
+
+def test_flat_bullet_list_unchanged():
+    assert _run_md("- a\n- b") == "<ul><li>a</li><li>b</li></ul>"
+
+
 def test_loaded_sessions_render_coach_markdown():
     # A reopened session must render coach replies through md(), not as raw
     # text, so the answer isn't shown a second time without formatting.

@@ -353,18 +353,24 @@ def test_ordered_list_numbering():
     script = md_src + textwrap.dedent("""
         process.stdout.write(md(JSON.parse(process.argv[1])));
     """)
-    text = "\n".join([
+    def render(text):
+        out = subprocess.run([node, "-e", script, _json.dumps(text)],
+                             capture_output=True, text=True, timeout=30)
+        assert out.returncode == 0, out.stderr
+        return out.stdout
+    import re as _re
+    # Numbering survives a sub-bullet interruption at the same indent.
+    flat = render("\n".join([
         "1. **Standard contract terms:**", "- stamp duty", "- definitions",
         "2. **Service Level Agreements:**", "- KPIs",
         "3. **Pricing and payment terms:**", "- costs",
-    ])
-    out = subprocess.run([node, "-e", script, _json.dumps(text)],
-                         capture_output=True, text=True, timeout=30)
-    assert out.returncode == 0, out.stderr
-    import re as _re
-    ordinals = _re.findall(r'<li value="(\d+)"', out.stdout)
-    assert ordinals == ["1", "2", "3"], f"numbering not preserved: {ordinals}"
-check("Ordered list keeps numbering across sub-bullets",
+    ]))
+    assert _re.findall(r'<li value="(\d+)"', flat) == ["1", "2", "3"], flat
+    # Indented sub-points nest inside their parent item (nested numbering).
+    nested = render("1. **Section (4)**\n  1. sub one (4.1)\n  2. sub two (4.2)")
+    assert '<li value="1"><strong>Section (4)</strong><ol>' in nested, nested
+    assert '<ol><li value="1">sub one (4.1)</li><li value="2">sub two (4.2)' in nested
+check("Ordered list numbering + nested numbering render correctly",
       test_ordered_list_numbering)
 
 # ---- LLM backend robustness (bounded response read) ----
