@@ -1,7 +1,10 @@
 import re
+import zipfile
 
+import pytest
 from openpyxl import load_workbook
 
+import coach.excel as excel
 from coach.excel import (
     BRIEF_SHEET,
     INFO_SHEET,
@@ -51,6 +54,26 @@ def test_write_with_template(samples, tmp_path):
     assert data[0][:5] == (1, "5.3", "Access Control",
                            "Enforce MFA for all user accounts.", "M")
     assert data[2][1] == "10.1"
+
+
+def test_oversize_template_is_refused(monkeypatch, tmp_path):
+    # A .xlsx is a zip; a member that decompresses past the cap (tiny on disk,
+    # huge expanded) is a zip bomb and must be refused before openpyxl parses it.
+    monkeypatch.setattr(excel, "_MAX_TEMPLATE_UNCOMPRESSED_BYTES", 2000)
+    bomb = tmp_path / "bomb.xlsx"
+    with zipfile.ZipFile(bomb, "w", zipfile.ZIP_DEFLATED) as zf:
+        # Highly compressible payload: tiny on disk, far over the shrunk cap.
+        zf.writestr("xl/worksheets/sheet1.xml", "A" * 200_000)
+    assert bomb.stat().st_size < 2000  # actually tiny on disk
+    with pytest.raises(ValueError, match="zip bomb|too large to process"):
+        write_checklist(INFO, ROWS, tmp_path / "out.xlsx", bomb)
+
+
+def test_corrupt_template_is_refused(tmp_path):
+    not_a_zip = tmp_path / "broken.xlsx"
+    not_a_zip.write_bytes(b"this is not a zip file")
+    with pytest.raises(ValueError, match="not a valid .xlsx"):
+        write_checklist(INFO, ROWS, tmp_path / "out.xlsx", not_a_zip)
 
 
 def test_write_without_template(tmp_path):

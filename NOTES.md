@@ -2,6 +2,65 @@
 
 Reference this file at the start of each routine run.
 
+## Iteration 35 — 2026-06-23 (.xlsx template: bounded against zip bombs)
+
+Routine run, task: harden for security/robustness, apply Y.A.G.N.I cleanup,
+review the whole repo, run the stress test, check into main, log follow-ups.
+Entered healthy — **220 pass, 2 skipped, ruff clean, stress test all PASS** on
+`claude/dreamy-carson-388kxn`. **Topology:** the real GitHub default branch (via
+the GitHub MCP `list_commits`) was at `5ded25e` (iter 34) on entry — **identical
+to the working branch HEAD**; the local `origin/main` ref remains stale
+(`95b5f6b`, "Initial commit"), so I verified through the MCP per the standing
+topology note. **Drive source docs unchanged** (both
+`XXEON_IT_Procurement_Guideline.docx` and `TENDER_TEMPLATE.xlsx` still
+`modifiedTime 2026-06-10T13:05:11Z`, via a `parentId` listing of the "Purchasing
+Guideline" folder) — no sample refresh (follow-up 5).
+
+**Security/robustness shipped — `excel.write_checklist` bounds the `.xlsx`
+template against a zip bomb.** This closes the **last unbounded compressed
+input**. The `.docx` guideline loader was bounded in iter 30 and the LLM
+response body in iter 32, but the user-supplied `--template` `.xlsx` (also a zip
+/ Office Open XML) was still handed straight to `openpyxl.load_workbook`, which
+decompresses every member in full. A template tiny on disk but enormous when
+expanded (a zip bomb, or a corrupt archive) could exhaust memory **before any of
+our code ran**. New `_load_template_workbook(path)` (`coach/excel.py`) opens the
+archive, and with a single **whole-archive byte budget** does a **chunked,
+bounded** read of every member — rejecting with a clear `ValueError` if a member
+honestly declares an oversize *or* if the decompressed bytes cross a 128 MiB cap
+(defends against a header that under-reports the true expanded size); a corrupt /
+non-zip file (`BadZipFile`) gets an actionable "not a valid .xlsx" message. Only
+then does it call `load_workbook`. 128 MiB is vast headroom — the real template
+is ~18 KB. The CLI already wraps the tender flow in `except (ValueError /
+Exception)`, so the error surfaces cleanly (no traceback).
+
+**Why this shape (YAGNI):** symmetric with the existing `.docx` guard (same cap
+idiom, same "reject fast on declared size, then bounded read" structure) so the
+two compressed-input defences read alike. A single whole-archive budget (rather
+than per-member caps) is simpler and is the quantity that actually matters for
+memory. Did **not** add XML-entity-expansion ("billion laughs") defence —
+openpyxl already parses without external entity resolution, so that vector is
+out of scope here.
+
+**Y.A.G.N.I cleanup (no churn):** whole-repo `vulture coach scripts` (≥80%)
+surfaced only the known false positive — `log_message(self, fmt, …)` in
+`webui.py`, the required `BaseHTTPRequestHandler` override whose `fmt` is unused
+by design (it silences access logging). Removing it would be churn, so it stays.
+Tree is clean from prior passes; no edits beyond the hardening.
+
+**Verification this round:** ruff clean; pytest **222 pass, 2 skipped** (+2 in
+`tests/test_excel.py`: `test_oversize_template_is_refused` builds a tiny-on-disk
+`.xlsx` whose member decompresses past a monkeypatched-small cap and asserts the
+refusal; `test_corrupt_template_is_refused` checks a non-zip file gets the clean
+"not a valid .xlsx" error); `stress_test.py` **all PASS** (+1 "Oversize .xlsx
+template refused (zip-bomb guard)" under *Document Loader Robustness*, shrunk cap
+so it stays fast). Rebuilt `dist/purchasing-coach.pyz` (341 KB) + standard zip
+(380 KB); confirmed `_load_template_workbook` + the cap constant are bundled, and
+**smoke-tested the `.pyz` end-to-end against the real XXEON `.docx`** — a scripted
+`/tender` run with the keyword backend wrote a valid 28 KB
+`TENDER_CHECKLIST_*.xlsx` through the new bounded loader path. CHANGELOG
+Unreleased → Security updated. Checked into main; also on working branch
+`claude/dreamy-carson-388kxn`.
+
 ## Iteration 34 — 2026-06-23 (cite section numbers; nested numbering in chat)
 
 User request: *"cite reference to the section numbering in the guideline when

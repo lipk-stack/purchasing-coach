@@ -263,6 +263,34 @@ def test_docx_size_cap_refuses_bomb():
         _docs._MAX_DOCX_XML_BYTES = orig
 check("Oversize .docx refused (zip-bomb guard)", test_docx_size_cap_refuses_bomb)
 
+def test_xlsx_template_cap_refuses_bomb():
+    import tempfile, zipfile as _zip
+    import coach.excel as _excel
+    from coach.models import RequirementRow, TenderInfo
+    orig = _excel._MAX_TEMPLATE_UNCOMPRESSED_BYTES
+    _excel._MAX_TEMPLATE_UNCOMPRESSED_BYTES = 2000  # shrink so the test is fast
+    try:
+        path = tempfile.mktemp(suffix=".xlsx")
+        with _zip.ZipFile(path, "w", _zip.ZIP_DEFLATED) as zf:
+            zf.writestr("xl/worksheets/sheet1.xml", "A" * 200_000)
+        info = TenderInfo(issue_date="", submission_deadline="",
+                          purchase_item="x", issued_by="", requesting_dept="",
+                          tender_reference="", procurement_type="",
+                          estimated_value="", purchase_category="")
+        rows = [RequirementRow(ref="1", section="s", requirement="r",
+                               mandatory="M")]
+        out = tempfile.mktemp(suffix=".xlsx")
+        try:
+            _excel.write_checklist(info, rows, out, path)
+            raise AssertionError("oversize .xlsx template was not refused")
+        except ValueError as e:
+            assert "zip bomb" in str(e) or "too large" in str(e), \
+                f"unexpected error: {e}"
+    finally:
+        _excel._MAX_TEMPLATE_UNCOMPRESSED_BYTES = orig
+check("Oversize .xlsx template refused (zip-bomb guard)",
+      test_xlsx_template_cap_refuses_bomb)
+
 def test_real_world_docx_headings_yield_clauses():
     """A user's .docx with auto-numbered or unstyled headings still parses."""
     import tempfile

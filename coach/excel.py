@@ -1,5 +1,6 @@
 """Read/write the tender checklist Excel workbook based on the template."""
 
+import zipfile
 from pathlib import Path
 
 from openpyxl import Workbook, load_workbook
@@ -9,6 +10,17 @@ from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
 
 from .models import RequirementRow, TenderInfo
+
+# A .xlsx is a zip (Office Open XML), so the user-supplied ``--template`` is a
+# compressed input with the same decompression-amplification / zip-bomb risk the
+# .docx guideline loader guards against (see coach/documents.py). A file tiny on
+# disk but enormous when expanded could exhaust memory inside ``load_workbook``
+# before any of our code runs. We validate the archive's total decompressed size
+# with a bounded read first, so such a file is rejected with a clear error rather
+# than OOMing the machine. The real TENDER_TEMPLATE.xlsx is ~18 KB; 128 MiB is
+# vast headroom for any legitimate template while still bounding the damage.
+_MAX_TEMPLATE_UNCOMPRESSED_BYTES = 128 * 1024 * 1024
+_TEMPLATE_READ_CHUNK = 1024 * 1024
 
 INFO_SHEET = "Tender Information"
 TRACKER_SHEET = "Compliance Tracker"
@@ -58,7 +70,7 @@ def write_checklist(
     """
     out_path = Path(out_path)
     if template_path and Path(template_path).exists():
-        wb = load_workbook(str(template_path))
+        wb = _load_template_workbook(template_path)
     else:
         wb = create_blank_template()
 
@@ -382,6 +394,53 @@ def _extend_table(ws, header_row: int, last_row: int) -> None:
         if int("".join(filter(str.isdigit, start))) == header_row:
             last_col = get_column_letter(ws.max_column)
             table.ref = f"{start}:{last_col}{last_row}"
+
+
+def _load_template_workbook(template_path: str | Path) -> Workbook:
+    """Load the user's .xlsx template, bounded against a zip bomb.
+
+    Validates the archive's total decompressed size with a bounded read so a
+    malicious or corrupt template — tiny on disk, enormous when expanded — is
+    rejected with a clear error instead of exhausting memory inside openpyxl.
+    Raises ``ValueError`` on a corrupt/invalid workbook or one that exceeds
+    :data:`_MAX_TEMPLATE_UNCOMPRESSED_BYTES` when decompressed.
+    """
+    path = Path(template_path)
+    try:
+        with zipfile.ZipFile(path) as zf:
+            budget = _MAX_TEMPLATE_UNCOMPRESSED_BYTES
+            for info in zf.infolist():
+                if info.is_dir():
+                    continue
+                # Fast, clear rejection for a bomb that honestly declares its
+                # size; checked against the remaining whole-archive budget.
+                if info.file_size > budget:
+                    raise ValueError(
+                        f"'{path.name}' is too large to process: it declares "
+                        f"more than {_MAX_TEMPLATE_UNCOMPRESSED_BYTES:,} bytes of "
+                        "decompressed content. Check that this is a real tender "
+                        "template."
+                    )
+                # Bounded read also defends against a header that under-reports
+                # the true expanded size; we never hold more than one chunk.
+                with zf.open(info) as member:
+                    while True:
+                        chunk = member.read(_TEMPLATE_READ_CHUNK)
+                        if not chunk:
+                            break
+                        budget -= len(chunk)
+                        if budget < 0:
+                            raise ValueError(
+                                f"'{path.name}' expands to more than "
+                                f"{_MAX_TEMPLATE_UNCOMPRESSED_BYTES:,} bytes and "
+                                "was refused as a possible zip bomb."
+                            )
+    except zipfile.BadZipFile as exc:
+        raise ValueError(
+            f"'{path.name}' is not a valid .xlsx file (corrupt, or not an Excel "
+            "workbook). If it's an .xls, re-save it as .xlsx."
+        ) from exc
+    return load_workbook(str(path))
 
 
 def create_blank_template() -> Workbook:

@@ -89,6 +89,17 @@ Production-quality hardening pass.
   detect the overflow. The streaming chat path is naturally incremental and was
   already unaffected. Error bodies were already truncated; this closes the
   matching gap on success bodies.
+- **`.xlsx` checklist template is bounded against zip bombs.** An `.xlsx` is a
+  zip too, and the user-supplied `--template` was handed straight to
+  `openpyxl.load_workbook`, which would decompress it in full — a template tiny
+  on disk but huge when expanded (a zip bomb, or a corrupt archive) could
+  exhaust memory before any of our code ran. The template is now validated with
+  a bounded, chunked read first and refused if its members decompress past a
+  128 MiB whole-archive cap (vast headroom for the ~18 KB real template),
+  defending even against a header that under-reports the expanded size; corrupt
+  archives get a clear, actionable error. This is the symmetric counterpart to
+  the `.docx` guideline and LLM-response guards — the last unbounded compressed
+  input is now covered.
 
 ### Fixed
 - **Chat answers number correctly and aren't shown twice.** Two web-UI chat
