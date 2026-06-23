@@ -45,14 +45,37 @@ fi
 GUIDELINE="${GUIDELINE:-$DIR/samples/XXEON_IT_Procurement_Guideline.docx}"
 TEMPLATE="${TEMPLATE:-$DIR/samples/TENDER_TEMPLATE.xlsx}"
 
+# Pre-flight: make sure the chosen documents exist, so a renamed or
+# wrong-folder file is caught here with a clear message rather than failing
+# deep inside the app. Drop your own files into samples/ keeping the same
+# names, or point GUIDELINE/TEMPLATE at them.
+if [ ! -f "$GUIDELINE" ]; then
+  echo " [ERROR] Guideline file not found:" >&2
+  echo "         $GUIDELINE" >&2
+  echo "         Put your guideline in samples/ as" >&2
+  echo "         XXEON_IT_Procurement_Guideline.docx (.docx/.pdf/.md/.txt)," >&2
+  echo "         or run:  GUIDELINE=/path/to/your-guideline.docx ./run.sh" >&2
+  exit 1
+fi
+if [ ! -f "$TEMPLATE" ]; then
+  echo " [WARN] Template not found: $TEMPLATE" >&2
+  echo "        Falling back to the built-in checklist layout." >&2
+  TEMPLATE=""
+fi
+
 echo " Python:    $PY"
 echo " App:       $PYZ"
 echo " Guideline: $GUIDELINE"
+echo " Template:  ${TEMPLATE:-<built-in layout>}"
 echo ""
 
 # Default to the browser UI when no flags were given; otherwise forward them.
 if [ "$#" -eq 0 ]; then
-  exec "$PY" "$PYZ" --guideline "$GUIDELINE" --template "$TEMPLATE" --web
-else
-  exec "$PY" "$PYZ" --guideline "$GUIDELINE" --template "$TEMPLATE" "$@"
+  set -- --web
 fi
+if [ -n "$TEMPLATE" ]; then
+  set -- --guideline "$GUIDELINE" --template "$TEMPLATE" "$@"
+else
+  set -- --guideline "$GUIDELINE" "$@"
+fi
+exec "$PY" "$PYZ" "$@"

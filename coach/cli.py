@@ -9,6 +9,7 @@ from .backends import BackendError, get_backend, list_backends
 from .backends.openai_compat import PROVIDER_PRESETS
 from .documents import load_guideline
 from .format import StreamPrinter, enable_windows_ansi
+from .guideline import guideline_notice
 from .llm import Coach
 from .tender import run_tender_flow
 
@@ -109,6 +110,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Could not load the guideline: {exc}", file=sys.stderr)
         return 2
     coach = Coach(guideline_text, backend)
+
+    notice = guideline_notice(coach.clauses)
+    if notice:
+        print(notice, file=sys.stderr)
 
     if args.web:
         from .webui import WebUI

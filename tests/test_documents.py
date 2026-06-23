@@ -82,6 +82,61 @@ def test_oversize_docx_is_refused(tmp_path, monkeypatch):
         documents.load_guideline(big)
 
 
+def test_manual_numbered_headings_without_styles(tmp_path):
+    # Headings typed as plain 'N.M Title' lines (no Word heading style) are
+    # still recognised as clauses, so a user's own document produces a checklist.
+    import docx
+
+    from coach.guideline import parse_clauses
+
+    d = docx.Document()
+    for line in ["4 Contract Requirements", "4.1 Standard Terms"]:
+        d.add_paragraph(line)
+    d.add_paragraph("The vendor shall provide all deliverables on time.")
+    p = tmp_path / "manual.docx"
+    d.save(str(p))
+    clauses = parse_clauses(load_guideline(p))
+    assert "4" in clauses and "4.1" in clauses
+
+
+def test_autonumbered_styled_headings_get_synthesised_numbers(tmp_path):
+    # Word heading styles whose number is auto-generated (absent from the run
+    # text) still yield numbered clauses via synthesised numbering.
+    import docx
+
+    from coach.guideline import parse_clause_requirements, parse_clauses
+
+    d = docx.Document()
+    d.add_heading("Contract Requirements", level=1)
+    d.add_heading("Standard Terms", level=2)
+    d.add_paragraph("The vendor shall provide all deliverables on time.")
+    d.add_heading("Information Security", level=1)
+    d.add_paragraph("Multi-factor authentication must be enforced.")
+    p = tmp_path / "auto.docx"
+    d.save(str(p))
+    text = load_guideline(p)
+    clauses = parse_clauses(text)
+    assert "1" in clauses and "1.1" in clauses and "2" in clauses
+    reqs = parse_clause_requirements(text)
+    assert sum(len(v) for v in reqs.values()) >= 2
+
+
+def test_numbered_body_sentence_is_not_a_heading(tmp_path):
+    # A numbered sentence in the body stays body text rather than becoming a
+    # spurious clause heading.
+    import docx
+
+    from coach.guideline import parse_clauses
+
+    d = docx.Document()
+    d.add_heading("4 Contract Requirements", level=1)
+    d.add_paragraph("4 servers must be delivered within 30 days of award.")
+    p = tmp_path / "body.docx"
+    d.save(str(p))
+    clauses = parse_clauses(load_guideline(p))
+    assert list(clauses) == ["4"]
+
+
 def test_non_utf8_text_file_is_read(tmp_path):
     # Raw cp1252 bytes (0x96 en-dash, 0x92 right quote) that are invalid UTF-8.
     f = tmp_path / "win.txt"

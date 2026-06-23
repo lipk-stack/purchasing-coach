@@ -52,6 +52,30 @@ echo  [INFO] Using standard build.
 if not defined GUIDELINE set "GUIDELINE=.\samples\XXEON_IT_Procurement_Guideline.docx"
 if not defined TEMPLATE  set "TEMPLATE=.\samples\TENDER_TEMPLATE.xlsx"
 
+REM Clear stale Python bytecode so an edited source tree is recompiled and
+REM nothing cached from a previous run is reused.
+for /d /r %%d in (__pycache__) do @if exist "%%d" rd /s /q "%%d" 2>nul
+
+REM Pre-flight: catch a renamed or wrong-folder file here with a clear message
+REM rather than failing deep inside the app. Drop your own files into samples\
+REM keeping the same names, or set GUIDELINE / TEMPLATE to point at them.
+if not exist "%GUIDELINE%" (
+    echo  [ERROR] Guideline file not found:
+    echo          %GUIDELINE%
+    echo          Put your guideline in the samples\ folder as
+    echo          XXEON_IT_Procurement_Guideline.docx ^(.docx/.pdf/.md/.txt^),
+    echo          or:  set GUIDELINE=C:\path\to\your-guideline.docx ^& run.bat
+    pause
+    endlocal ^& exit /b 1
+)
+if not exist "%TEMPLATE%" (
+    echo  [WARN] Template not found: %TEMPLATE%
+    echo         Falling back to the built-in checklist layout.
+)
+echo  Guideline: %GUIDELINE%
+echo  Template:  %TEMPLATE%
+echo.
+
 REM Default to the browser UI when no extra flags are passed.
 if "%~1"=="" goto launch_default
 goto launch_args

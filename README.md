@@ -111,20 +111,81 @@ shortcut for every option below:
 ./run.sh                       # (Windows: run.bat)
 ```
 
-Point it at your own documents with environment variables (no flags needed):
+The scripts prefer the prebuilt `dist/purchasing-coach.pyz`; if it's missing
+they fall back to running from source (`python -m coach`).
+
+## Using your own guideline and template
+
+There are two ways to point the app at your real documents.
+
+**Option A — drop them into `samples/` (keep the same names).** Replace
+`samples/XXEON_IT_Procurement_Guideline.docx` and
+`samples/TENDER_TEMPLATE.xlsx` with your files, keeping those exact filenames,
+then just run `./run.sh` (or `run.bat`). The launchers verify the files exist
+before starting (a missing or renamed file is reported up front), echo the
+guideline and template they resolved so you can confirm your files are the ones
+in use, and clear stale Python bytecode caches so nothing from a previous run is
+reused. Your guideline may be `.docx`, `.pdf`, `.md`, or `.txt`.
+
+**Option B — point at any path (no renaming).** Use environment variables or
+flags; these take precedence over the `samples/` defaults:
 
 ```bash
-GUIDELINE=MyGuideline.docx TEMPLATE=MyTemplate.xlsx ./run.sh
+GUIDELINE=/path/to/MyGuideline.docx TEMPLATE=/path/to/MyTemplate.xlsx ./run.sh
+# or, equivalently:
+./run.sh --guideline /path/to/MyGuideline.docx --template /path/to/MyTemplate.xlsx
 ```
 
 ```bat
-set GUIDELINE=MyGuideline.docx
-set TEMPLATE=MyTemplate.xlsx
+set GUIDELINE=C:\path\to\MyGuideline.docx
+set TEMPLATE=C:\path\to\MyTemplate.xlsx
 run.bat
 ```
 
-The scripts prefer the prebuilt `dist/purchasing-coach.pyz`; if it's missing
-they fall back to running from source (`python -m coach`).
+### What the guideline needs
+
+The checklist is built by matching the guideline's **numbered clauses**, so the
+document must have numbered headings such as `4 Contract Requirements` and
+`4.1 Standard Terms`. The loader recognises them whether they are authored as:
+
+- **Word heading styles** (Heading 1/2/3…) with the number typed into the
+  heading text — the most reliable form;
+- **manually numbered lines** like `4.1 Standard Terms` in a normal paragraph; or
+- **Word auto-numbered headings**, where Word renders the number from its list
+  settings (so it isn't stored in the text) — the loader then *synthesises* a
+  consistent hierarchical numbering from the heading nesting so a checklist can
+  still be produced.
+
+If **no** numbered sections are detected, the app shows a clear heads-up (in the
+terminal, and as a banner in the browser UI) instead of silently producing an
+empty checklist. If you see that, add numbered headings to your guideline (or
+export it with the heading styles intact) and re-run.
+
+> The reverse-prompting interview and the always-included core sections are
+> tuned to the XXEON guideline's section numbering (e.g. 4 = contract, 5 =
+> information security, 8 = hardware). A guideline with a *different* numbering
+> scheme still produces a checklist from its own clauses, but those XXEON-specific
+> coverage questions only fire for matching section numbers.
+
+### What the template needs
+
+The template is optional — omit it (or let it fall back) and a built-in layout
+matching `TENDER_TEMPLATE.xlsx` is used. If you do supply one, the writer fills
+it **in place** (preserving your formatting) by locating, case-insensitively:
+
+- a **`Tender Information`** sheet — label cells (e.g. *Purchase Item*,
+  *Purchase Category*) are matched and the value written in the cell to their
+  right; any missing labels are appended at the bottom;
+- a **`Compliance Tracker`** sheet — a header row containing `Seq` and
+  `Requirement` (the full set is `Seq, Ref, Section, Requirement, M/O,
+  Vendor Status, Vendor Remarks`); rows are written beneath it.
+
+If those sheets/headers aren't found they are created, so a structurally
+different template will get **new** sheets rather than filling your existing
+ones. For your own sheets to be filled, match those sheet names and the tracker
+header labels (the committed `samples/TENDER_TEMPLATE.xlsx` is a working
+reference). The generated `Procurement Brief` and `Review & Approval` sheets are
+always added.
 
 ## Portable use (no install rights needed)
 

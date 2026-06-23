@@ -263,6 +263,36 @@ def test_docx_size_cap_refuses_bomb():
         _docs._MAX_DOCX_XML_BYTES = orig
 check("Oversize .docx refused (zip-bomb guard)", test_docx_size_cap_refuses_bomb)
 
+def test_real_world_docx_headings_yield_clauses():
+    """A user's .docx with auto-numbered or unstyled headings still parses."""
+    import tempfile
+    try:
+        import docx
+    except ImportError:
+        print("    (python-docx not installed; skipping)")
+        return
+    from coach.documents import load_guideline
+    from coach.guideline import (guideline_notice, parse_clause_requirements,
+                                 parse_clauses)
+    # Word heading styles whose numbers are auto-generated (absent from text).
+    d = docx.Document()
+    d.add_heading("Contract Requirements", level=1)
+    d.add_heading("Standard Terms", level=2)
+    d.add_paragraph("The vendor shall provide all deliverables on time.")
+    d.add_heading("Information Security", level=1)
+    d.add_paragraph("Multi-factor authentication must be enforced.")
+    path = tempfile.mktemp(suffix=".docx")
+    d.save(path)
+    text = load_guideline(path)
+    clauses = parse_clauses(text)
+    assert clauses, "auto-numbered headings yielded no clauses"
+    assert guideline_notice(clauses) is None, "structured doc should not warn"
+    reqs = parse_clause_requirements(text)
+    assert sum(len(v) for v in reqs.values()) >= 2, "no requirements parsed"
+    # An unstructured document is reported, not silently empty.
+    assert guideline_notice(parse_clauses("plain prose, no numbers")) is not None
+check("Real-world .docx headings yield clauses", test_real_world_docx_headings_yield_clauses)
+
 # ---- Web server security (DNS-rebinding / host pinning) ----
 print("\n--- Web Server Security ---")
 

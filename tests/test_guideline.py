@@ -3,7 +3,7 @@
 from coach.guideline import (atomic_requirements, classify_obligation,
                             clause_sort_key, coverage_questions,
                             ensure_core_sections, expand_requirements,
-                            is_affirmative, normalize_ref,
+                            guideline_notice, is_affirmative, normalize_ref,
                             parse_clause_requirements, parse_clauses,
                             reconcile_requirements, relevant_coverage_questions,
                             sections_from_answers, split_into_sentences)
@@ -446,3 +446,11 @@ def test_sections_from_answers_includes_sbom_when_affirmed():
     assert "13" in sections_from_answers([(question, "Yes")], clauses)
     # Declining keeps the appendix out.
     assert "13" not in sections_from_answers([(question, "No")], clauses)
+
+
+def test_guideline_notice_flags_unstructured_document():
+    # A structured guideline produces no notice; an unstructured one warns the
+    # user (so an empty checklist is never a silent failure).
+    assert guideline_notice(parse_clauses(GUIDELINE)) is None
+    notice = guideline_notice(parse_clauses("Just some prose with no numbers."))
+    assert notice and "numbered" in notice.lower()

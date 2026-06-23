@@ -109,17 +109,85 @@ def _load_docx(path: Path) -> str:
             f"'{path.name}' contains malformed XML and could not be read."
         ) from exc
 
-    lines: list[str] = []
+    # Collect each non-empty paragraph with its Word heading level (0 = body).
+    paras: list[tuple[int, str]] = []
     for para in root.iter(f"{_W}p"):
         text = "".join(node.text or "" for node in para.iter(f"{_W}t")).strip()
-        if not text:
-            continue
-        level = _heading_level(para)
-        if level:
-            lines.append("#" * min(level, 6) + " " + text)
-        else:
+        if text:
+            paras.append((_heading_level(para), text))
+    return _render_markdown(paras)
+
+
+# A clause number at the very start of a line ("4", "4.1", "5.6.2"), but only
+# when followed by a dot, ")" or whitespace — so "24/7" or "10am" are not
+# mistaken for clause numbers.
+_NUM_PREFIX = re.compile(r"^\d+(?:\.\d+)*(?=[.)\s])")
+
+
+def _looks_like_heading(text: str) -> bool:
+    """True for a short ``N[.N...] Title`` line typed as a manual heading.
+
+    Real guidelines are often authored with the section number typed into a
+    bold paragraph rather than a Word *heading style*. We treat such a line as a
+    heading when it is short and does not read as a sentence (no trailing
+    sentence punctuation), so a numbered body sentence or list item — e.g.
+    "4 servers must be delivered by Q3." — is left as body text.
+    """
+    if not _NUM_PREFIX.match(text):
+        return False
+    if len(text) > 90 or len(text.split()) > 12:
+        return False
+    return not text.rstrip().endswith((".", ";", ":", ","))
+
+
+def _render_markdown(paras: list[tuple[int, str]]) -> str:
+    """Render paragraphs to markdown the clause parser understands.
+
+    Headings become ``#``-prefixed lines so :mod:`coach.guideline` can index
+    their clause numbers. Two real-world shapes are recovered so a user's own
+    document still produces a checklist:
+
+    - a manually numbered heading with no Word heading style (promoted to a
+      heading by :func:`_looks_like_heading`), and
+    - Word *auto-numbered* headings, where the number is rendered from the
+      document's numbering definitions and is therefore absent from the text —
+      a stable hierarchical number is synthesised from the heading nesting so
+      the clauses can still be referenced. Synthesis only kicks in when the
+      document carries no explicit clause numbers at all, so a document's own
+      numbering is always preferred.
+    """
+    has_literal = any(
+        _NUM_PREFIX.match(text)
+        for level, text in paras
+        if level or _looks_like_heading(text)
+    )
+    counters: list[int] = []
+    lines: list[str] = []
+    for level, text in paras:
+        if not level and _looks_like_heading(text):
+            level = _NUM_PREFIX.match(text).group(0).count(".") + 1
+        if not level:
             lines.append(text)
+        elif _NUM_PREFIX.match(text):
+            lines.append("#" * min(level, 6) + " " + text)
+        elif not has_literal:
+            number = _next_number(counters, level)
+            lines.append("#" * min(level, 6) + " " + number + " " + text)
+        else:
+            lines.append("#" * min(level, 6) + " " + text)
     return "\n\n".join(lines)
+
+
+def _next_number(counters: list[int], level: int) -> str:
+    """Advance hierarchical heading counters and return the dotted number."""
+    while len(counters) < level:
+        counters.append(0)
+    del counters[level:]
+    counters[level - 1] += 1
+    for i in range(level - 1):  # a deeper heading seen before its parent
+        if counters[i] == 0:
+            counters[i] = 1
+    return ".".join(str(c) for c in counters[:level])
 
 
 def _heading_level(para) -> int:

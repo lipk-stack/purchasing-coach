@@ -47,6 +47,26 @@ endlocal & exit /b 1
 if not defined GUIDELINE set "GUIDELINE=.\samples\XXEON_IT_Procurement_Guideline.docx"
 if not defined TEMPLATE  set "TEMPLATE=.\samples\TENDER_TEMPLATE.xlsx"
 
+REM Pre-flight: catch a renamed or wrong-folder file here with a clear message
+REM rather than failing deep inside the app. Drop your own files into samples\
+REM keeping the same names, or set GUIDELINE / TEMPLATE to point at them.
+if not exist "%GUIDELINE%" (
+    echo  [ERROR] Guideline file not found:
+    echo          %GUIDELINE%
+    echo          Put your guideline in the samples\ folder as
+    echo          XXEON_IT_Procurement_Guideline.docx ^(.docx/.pdf/.md/.txt^),
+    echo          or:  set GUIDELINE=C:\path\to\your-guideline.docx ^& run.bat
+    pause
+    endlocal ^& exit /b 1
+)
+if not exist "%TEMPLATE%" (
+    echo  [WARN] Template not found: %TEMPLATE%
+    echo         Falling back to the built-in checklist layout.
+)
+echo  Guideline: %GUIDELINE%
+echo  Template:  %TEMPLATE%
+echo.
+
 REM Default to the embedded backend (bundled model) + browser UI.
 REM Pass extra flags to override (e.g. run.bat --backend keyword).
 if "%~1"=="" goto launch_default

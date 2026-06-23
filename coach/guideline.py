@@ -62,6 +62,27 @@ def parse_clauses(text: str) -> dict[str, str]:
     return clauses
 
 
+def guideline_notice(clauses: dict[str, str]) -> str | None:
+    """Return a user-facing warning when the guideline has no numbered clauses.
+
+    The tender checklist is expanded by matching the guideline's numbered
+    clauses, so a document with no detectable numbered headings yields an empty
+    or very weak checklist. Rather than fail silently, callers surface this so
+    the user knows their own document's structure wasn't recognised and how to
+    fix it. Returns ``None`` when the guideline parsed normally.
+    """
+    if clauses:
+        return None
+    return (
+        "Heads-up: no numbered sections were detected in this guideline, so a "
+        "tender checklist can't be expanded from it. Use a guideline with "
+        "numbered headings — e.g. '4 Contract Requirements' then '4.1 Standard "
+        "Terms' — either as Word heading styles with the number in the heading "
+        "text, or as plain 'N.M Title' lines. See 'Using your own guideline and "
+        "template' in the README."
+    )
+
+
 def classify_obligation(text: str) -> str:
     """Return 'M' (binding) or 'O' (recommended) for a requirement statement."""
     if _STRONG.search(text or ""):

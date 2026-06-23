@@ -6,6 +6,7 @@ from pathlib import Path
 from collections.abc import Callable
 
 from .excel import write_checklist
+from .guideline import guideline_notice
 from .llm import Coach
 
 # Callback signature: (current_step, total_steps, question_text)
@@ -22,6 +23,9 @@ def run_tender_flow(coach: Coach, template_path: str | Path | None,
     ``on_progress`` is called before each question with (step, total, question).
     """
     say("\n=== Tender checklist generator ===")
+    notice = guideline_notice(coach.clauses)
+    if notice:
+        say(notice)
     item = ask("What do you want to buy? Describe the item/solution: ").strip()
     if not item:
         say("No item given — cancelled.")

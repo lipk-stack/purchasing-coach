@@ -22,6 +22,7 @@ from pathlib import Path
 
 from . import __version__
 from .excel import write_checklist
+from .guideline import guideline_notice
 from .llm import Coach
 from .models import (
     AnalyticsSnapshot,
@@ -123,6 +124,7 @@ class WebUI:
             "backend": self.backend.name,
             "model": getattr(self.backend, "model", "N/A"),
             "guideline": Path(self.guideline_path).name,
+            "guideline_notice": guideline_notice(self.coach.clauses),
             "version": __version__,
             "requires_model": getattr(self.backend, "requires_model", True),
         }
@@ -1008,6 +1010,16 @@ async function loadMeta(){
     S.guideline=m.guideline;
     document.getElementById('backendLabel').textContent=m.backend;
     document.getElementById('guidelineLabel').textContent=m.guideline;
+    if(m.guideline_notice){
+      console.warn(m.guideline_notice);
+      let b=document.getElementById('guidelineNotice');
+      if(!b){b=document.createElement('div');b.id='guidelineNotice';
+        b.setAttribute('role','alert');
+        b.style.cssText='background:#fff3cd;color:#664d03;padding:10px 14px;'+
+          'border-bottom:1px solid #ffe69c;font-size:14px;line-height:1.4;';
+        document.body.insertBefore(b,document.body.firstChild);}
+      b.textContent='⚠ '+m.guideline_notice;
+    }
     document.getElementById('setBackend').textContent=m.backend;
     document.getElementById('setModel').textContent=m.model;
     document.getElementById('setReqModel').textContent=m.requires_model?'Yes':'No';

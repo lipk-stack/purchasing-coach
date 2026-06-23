@@ -2,6 +2,58 @@
 
 Reference this file at the start of each routine run.
 
+## Iteration 31 — 2026-06-23 (user-reported: real files "don't work")
+
+User report: *"when I replace the xlsx and docx files with my real files it does
+not work."* Reproduced and fixed the root cause, then documented and hardened the
+launchers.
+
+**Root cause (confirmed by reproduction).** The clause parser needs numbered
+headings, but the `.docx` loader only emitted a heading when a paragraph had a
+Word *heading style* AND the clause number was literal text. Two extremely common
+real-world shapes broke it, both yielding **0 clauses → a silently empty
+checklist**: (1) **Word auto-numbering** — the number is rendered from the doc's
+list settings and isn't in the run text, so a styled "Heading 1" reads as
+`# CONTRACT REQUIREMENTS` (no number); (2) **manually numbered bold lines** with
+no heading style, e.g. `4.1 Standard Terms`, emitted as plain body text. (The
+genuine XXEON template/guideline in Drive DO match the code — sheets `Tender
+Information`/`Compliance Tracker`, headers `Seq,Ref,…`; this was a *content*
+problem with arbitrary real docs, not a path/cache one.)
+
+**Fixes shipped:**
+- `coach/documents.py` — `_render_markdown`/`_looks_like_heading`/`_next_number`:
+  promote short `N.M Title` lines to headings even without a style, and
+  synthesise stable hierarchical numbers for styled-but-unnumbered (auto-numbered)
+  headings. Gated so a doc's own explicit numbering always wins; numbered *body*
+  sentences (ending in punctuation, or long) stay body text. The original sample
+  is byte-for-byte unchanged (65 clauses, 212 rows).
+- `coach/guideline.py::guideline_notice` — actionable heads-up when a guideline
+  yields no numbered clauses. Surfaced on the terminal (`cli.py`), at the start of
+  the tender flow (`tender.py`), and as a browser banner (`webui.py` meta + JS),
+  so an empty result is never silent.
+- Launchers (`run.sh`, `run.bat`, `scripts/portable_run.sh`, `portable_run.bat`):
+  verify the resolved guideline/template exist (clear up-front error on a
+  renamed/missing file), echo both paths in use, fall back to the built-in layout
+  with a warning when the template is missing, and clear stale `__pycache__`.
+- README + portable README: new "Using your own guideline and template" guide —
+  the two ways to supply files, the required guideline heading shapes, the
+  template sheet/header schema, and the documented limitation that the
+  reverse-prompting coverage is tuned to XXEON's section numbering.
+
+**Known limitation (documented, not a bug):** for a guideline whose numbering
+differs from XXEON's (incl. synthesised numbers), the checklist is still produced
+from its own clauses, but the XXEON-specific coverage questions and
+`CORE_SECTIONS`/`_COVERAGE` only fire for matching section numbers — so coverage
+is narrower than on the XXEON guideline. Full coverage assumes XXEON-style
+numbering. Possible future work: make coverage section-mapping configurable.
+
+**Verification:** ruff clean; pytest **211 pass, 2 skipped** (+5: 3 docx-shape, 1
+`guideline_notice`, 1 oversize from iter 30); `stress_test.py` all PASS (+1
+real-world-headings case). Rebuilt `dist/purchasing-coach.pyz` (338 KB) + standard
+zip (377 KB); **end-to-end through the .pyz**: an auto-numbered `.docx` now writes
+a checklist, and a prose-only guideline shows the heads-up. `run.sh` smoke-tested
+(missing guideline → exit 1 with guidance; missing template → built-in fallback).
+
 ## Iteration 30 — 2026-06-22 (docx zip-bomb guard; whole-repo YAGNI review)
 
 Routine run, task: harden for security/robustness, apply Y.A.G.N.I cleanup,

@@ -70,6 +70,30 @@ Production-quality hardening pass.
   documents are unaffected and the error message is clear and actionable.
 
 ### Fixed
+- **Your own `.docx` guideline now produces a checklist instead of an empty
+  one.** The clause parser needs numbered headings, but the `.docx` loader only
+  recognised them when they were Word *heading styles* with the number typed
+  into the text. Real-world guidelines that use **Word auto-numbering** (the
+  number is rendered from the document's list settings, so it isn't in the run
+  text) or **manually numbered bold lines** (no heading style) produced zero
+  clauses — and therefore a silently empty checklist. The loader now (a) promotes
+  a short `N.M Title` line to a heading even without a heading style, and
+  (b) synthesises stable hierarchical numbers for styled-but-unnumbered
+  (auto-numbered) headings, so both shapes yield a usable checklist. A
+  document's own explicit numbering is always preferred when present.
+- **An unrecognised guideline no longer fails silently.** When no numbered
+  sections are detected, the app now shows a clear, actionable heads-up — on the
+  terminal, at the start of the tender flow, and as a banner in the browser UI
+  (via a new `guideline_notice`) — telling the user their document's structure
+  wasn't recognised and how to fix it, instead of producing an empty checklist
+  with no explanation.
+- **Launchers verify your files before starting.** `run.sh` / `run.bat` (and the
+  portable launchers) now check that the resolved guideline and template exist,
+  reporting a renamed or wrong-folder file up front with guidance; echo the
+  guideline *and* template actually in use so you can confirm your files were
+  picked up; fall back to the built-in layout (with a warning) when the template
+  is missing; and clear stale Python bytecode caches so nothing from a previous
+  run is reused.
 - **Embedded model no longer loops forever.** Small GGUF models (the bundled
   Qwen2.5-1.5B) could stream the same phrase endlessly. Root causes addressed:
   (1) generation now uses anti-repetition sampling (`repeat_penalty` 1.18,

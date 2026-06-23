@@ -56,7 +56,14 @@ In the browser UI (or a terminal session) you can type:
 
 ## Using your own documents
 
-Set environment variables before launching, or pass flags directly.
+**Easiest: replace the files in `samples/`.** Put your guideline and template
+into the `samples/` folder using the same filenames
+(`XXEON_IT_Procurement_Guideline.docx` and `TENDER_TEMPLATE.xlsx`), then launch
+as usual. The launcher checks the files exist before starting, prints which
+guideline and template it's using so you can confirm, and falls back to a
+built-in checklist layout if the template is missing.
+
+**Or point at any path** with environment variables or flags:
 
 **macOS / Linux**
 
@@ -75,6 +82,21 @@ run.bat
 ```
 
 Guidelines can be `.docx`, `.pdf`, `.md`, or `.txt`.
+
+### Make sure your guideline produces a checklist
+
+The checklist is built from the guideline's **numbered clauses**, so your
+document needs numbered headings like `4 Contract Requirements` and `4.1
+Standard Terms` — as Word heading styles (with the number in the heading text),
+as plain `N.M Title` lines, or via Word's automatic heading numbering. If no
+numbered sections are detected the app shows a heads-up (a banner in the browser
+UI) rather than producing an empty checklist; add numbered headings and re-run.
+
+If you supply your own **template**, name its sheets `Tender Information` and
+`Compliance Tracker` and give the tracker a header row with `Seq, Ref, Section,
+Requirement, M/O, Vendor Status, Vendor Remarks` so your sheets are filled in
+place; otherwise the app adds its own sheets. Omit the template to use the
+built-in layout.
 
 ## Options
 
