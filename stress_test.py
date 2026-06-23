@@ -329,6 +329,44 @@ def test_web_server_rejects_foreign_host():
         httpd.shutdown()
 check("Web server pins Host to loopback", test_web_server_rejects_foreign_host)
 
+# ---- Web UI rendering (ordered-list numbering) ----
+print("\n--- Web UI Rendering ---")
+
+def test_ordered_list_numbering():
+    """The chat markdown renderer must keep numbering across sub-bullets.
+
+    The real md() is JavaScript inside webui.PAGE; execute it with node so we
+    test the shipped code. Skips cleanly when node isn't installed.
+    """
+    import json as _json
+    import shutil
+    import subprocess
+    import textwrap
+    from coach.webui import PAGE
+    node = shutil.which("node")
+    if not node:
+        print("    (node not installed; skipping JS render check)")
+        return
+    start = PAGE.index("function md(src){")
+    rh = PAGE.index("return html;", start)
+    md_src = PAGE[start:PAGE.index("}", rh) + 1]
+    script = md_src + textwrap.dedent("""
+        process.stdout.write(md(JSON.parse(process.argv[1])));
+    """)
+    text = "\n".join([
+        "1. **Standard contract terms:**", "- stamp duty", "- definitions",
+        "2. **Service Level Agreements:**", "- KPIs",
+        "3. **Pricing and payment terms:**", "- costs",
+    ])
+    out = subprocess.run([node, "-e", script, _json.dumps(text)],
+                         capture_output=True, text=True, timeout=30)
+    assert out.returncode == 0, out.stderr
+    import re as _re
+    ordinals = _re.findall(r'<li value="(\d+)"', out.stdout)
+    assert ordinals == ["1", "2", "3"], f"numbering not preserved: {ordinals}"
+check("Ordered list keeps numbering across sub-bullets",
+      test_ordered_list_numbering)
+
 # ---- LLM backend robustness (bounded response read) ----
 print("\n--- LLM Backend Robustness ---")
 

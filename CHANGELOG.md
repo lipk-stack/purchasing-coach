@@ -81,6 +81,16 @@ Production-quality hardening pass.
   matching gap on success bodies.
 
 ### Fixed
+- **Chat answers number correctly and aren't shown twice.** Two web-UI chat
+  rendering bugs: (1) a numbered answer whose items were separated by sub-bullet
+  groups rendered *every* top-level item as "1." — each sub-list closed and
+  reopened the `<ol>`, restarting it. The renderer now carries the source
+  ordinal onto each `<li value="N">`, so 1, 2, 3 … survive the interruption.
+  (2) Reopening a **saved session** re-rendered the assistant's markdown as raw
+  text (literal `**`, `1.`), so a revisited answer looked like a second,
+  unformatted copy; loaded sessions now render coach replies through the same
+  markdown path as the live stream. The system prompt also now tells the model
+  to give its answer once and not restate it in a second format.
 - **Your own `.docx` guideline now produces a checklist instead of an empty
   one.** The clause parser needs numbered headings, but the `.docx` loader only
   recognised them when they were Word *heading styles* with the number typed

@@ -1074,7 +1074,13 @@ async function loadSession(id){
   try{const r=await fetch('/api/sessions/'+id);const d=await r.json();
     S.currentSession=id;S.history=d.messages||[];
     document.getElementById('chatThread').innerHTML='';
-    S.history.forEach(m=>addMsg(m.role==='user'?'you':'coach',m.role==='user'?'me':'',m.content));
+    S.history.forEach(m=>{
+      const isUser=m.role==='user';
+      // Coach replies are markdown; render them the same way the live stream
+      // does so a reopened session isn't a second, unformatted copy.
+      const b=addMsg(isUser?'you':'coach',isUser?'me':'',isUser?m.content:'');
+      if(!isUser){b.className='body md';b.innerHTML=md(m.content||'');}
+    });
     switchView('chat');
   }catch(e){}
 }
@@ -1098,10 +1104,14 @@ function md(src){
       const tag=table?'td':'th';if(!table){html+='<table>';table=true;}
       html+='<tr>'+cells.map(c=>`<${tag}>${c}</${tag}>`).join('')+'</tr>';continue;}
     closeTable();
-    const h=line.match(/^#{1,6}\s+(.*)/);const li=line.match(/^\s*[-*+]\s+(.*)/);const num=line.match(/^\s*\d+[.)]\s+(.*)/);
+    const h=line.match(/^#{1,6}\s+(.*)/);const li=line.match(/^\s*[-*+]\s+(.*)/);const num=line.match(/^\s*(\d+)[.)]\s+(.*)/);
     if(h){closeList();html+='<div class="h">'+inline(h[1])+'</div>';}
     else if(li){if(list!=='ul'){closeList();html+='<ul>';list='ul';}html+='<li>'+inline(li[1])+'</li>';}
-    else if(num){if(list!=='ol'){closeList();html+='<ol>';list='ol';}html+='<li>'+inline(num[1])+'</li>';}
+    else if(num){if(list!=='ol'){closeList();html+='<ol>';list='ol';}
+      // Carry the source ordinal so a list interrupted by a sub-bullet group
+      // (which closes and reopens the <ol>) keeps counting instead of every
+      // item restarting at 1.
+      html+='<li value="'+num[1]+'">'+inline(num[2])+'</li>';}
     else if(!line.trim()){closeList();}
     else{closeList();html+='<p>'+inline(line)+'</p>';}
   }

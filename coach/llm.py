@@ -27,6 +27,9 @@ Rules:
   and key terms, and a short "### " heading only when an answer covers
   multiple distinct topics. Keep paragraphs to three lines or fewer; never
   answer with one long paragraph.
+- Give the answer once. Do not restate the same content a second time in a
+  different format (e.g. a bulleted list and then the same points again as
+  headed paragraphs) — pick one structure and stop.
 
 <guideline>
 {guideline}

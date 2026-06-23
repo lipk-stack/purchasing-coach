@@ -2,6 +2,52 @@
 
 Reference this file at the start of each routine run.
 
+## Iteration 33 — 2026-06-23 (user-reported: chat numbering + duplicate answer)
+
+User report (with screenshots): on their own guideline the chat answer's
+**numbering was wrong** (every top-level item showed "1.") and the answer
+**appeared twice, "once with and without formatting."** Both reproduced and
+fixed in `coach/webui.py`'s client-side renderer (the screenshots showed LLM
+prose, so the live reply is from an LLM backend, not the retrieval backends).
+
+**Root causes + fixes:**
+- *Numbering.* `md()` opens a fresh `<ol>` whenever a numbered item is
+  interrupted by a sub-bullet group (the bullets close the `<ol>` and the next
+  number reopens it). Each `<ol>` then auto-numbered from 1, so every section
+  rendered "1." regardless of the model's real `1.`/`2.`/`3.`. Fix: capture the
+  source ordinal (`/^\s*(\d+)[.)]\s+/`) and emit `<li value="N">`, so numbering
+  survives the interruption. Verified by executing the *shipped* `md()` under
+  node: an interrupted list now yields ordinals 1,2,3 (was 1,1,1); a contiguous
+  list still yields 1,2,3.
+- *Duplicate "with and without formatting."* `loadSession()` re-rendered coach
+  replies with `body.textContent` — i.e. **raw markdown** (`**`, `1.` shown
+  literally) — while the live stream uses `md()`. Reopening a saved session
+  therefore showed the answer a second time, unformatted. Fix: loaded sessions
+  now render coach messages through `md()` (user messages stay escaped text).
+  As a belt-and-braces measure against a weaker local model genuinely emitting
+  its answer twice in two formats, the system prompt (`coach/llm.py`) now says
+  "Give the answer once. Do not restate the same content … pick one structure
+  and stop."
+
+**Why these two and not more (YAGNI):** the chat path appends exactly one coach
+bubble per turn, and the retrieval backends (`keyword`/`bm25`/`template`) yield
+their composed text once — so the only real duplication source in code was the
+session-reload raw-text render. No other churn.
+
+**Verification:** ruff clean; pytest **218 pass, 2 skipped** (+3: a new
+`tests/test_webui_markdown.py` that runs the real `md()` via node for both the
+interrupted and contiguous cases, skipping when node is absent, plus a check
+that `loadSession` renders coach markdown); `stress_test.py` all PASS (+1
+"Ordered list keeps numbering across sub-bullets" under a new *Web UI Rendering*
+section, node-gated). Rebuilt `dist/purchasing-coach.pyz` (339 KB) + standard
+zip (378 KB) and verified both fixes are bundled in the `.pyz`. CHANGELOG
+Unreleased → Fixed updated. Checked into main; also on working branch
+`claude/dreamy-carson-98yyv9`.
+
+*Note for next run:* `md()` still doesn't nest sub-bullets *inside* the numbered
+`<li>` (they render as siblings) — visually fine and matches the prior layout,
+so left alone (YAGNI). Only revisit if a user needs true nested indentation.
+
 ## Iteration 32 — 2026-06-23 (LLM backend: bounded response read)
 
 Routine run, task: harden for security/robustness, apply Y.A.G.N.I cleanup,
