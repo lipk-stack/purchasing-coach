@@ -220,3 +220,37 @@ def test_session_id_traversal_is_neutralised(tmp_path, monkeypatch):
     assert ui._session_path("../bad") is None
     assert ui.load_session("../../evil") is None
     assert ui.delete_session("../../etc/passwd") is False
+
+
+def test_normalize_history_coerces_untrusted_input():
+    # Well-formed messages pass through unchanged.
+    assert webui_mod._normalize_history(
+        [{"role": "user", "content": "hi"}]) == [{"role": "user", "content": "hi"}]
+    # Items that would crash a retrieval backend's messages[-1]["content"]
+    # read are dropped: non-dicts, and dicts without string content.
+    assert webui_mod._normalize_history([{"role": "user"}]) == []
+    assert webui_mod._normalize_history(["hello"]) == []
+    assert webui_mod._normalize_history([123]) == []
+    assert webui_mod._normalize_history([{"role": "user", "content": None}]) == []
+    assert webui_mod._normalize_history("not a list") == []
+    # A missing or out-of-set role is coerced to "user" so it can't widen trust.
+    assert webui_mod._normalize_history(
+        [{"content": "q"}]) == [{"role": "user", "content": "q"}]
+    assert webui_mod._normalize_history(
+        [{"role": "sneaky", "content": "q"}]) == [{"role": "user", "content": "q"}]
+    # Valid roles are preserved and order is kept.
+    assert webui_mod._normalize_history(
+        [{"role": "assistant", "content": "a"}, {"role": "user", "content": "b"}]
+    ) == [{"role": "assistant", "content": "a"}, {"role": "user", "content": "b"}]
+
+
+def test_chat_rejects_malformed_history(server):
+    # A hand-crafted POST with non-dict items or missing content used to reach
+    # the backend and raise KeyError/TypeError *after* the chunked stream had
+    # started; now it is rejected with a clean 400 before streaming.
+    base, _ = server
+    for bad in ([{"role": "user"}], ["hello"], [123],
+                [{"role": "user", "content": None}]):
+        with pytest.raises(urllib.error.HTTPError) as err:
+            _post(base + "/api/chat", {"messages": bad})
+        assert err.value.code == 400

@@ -2,6 +2,71 @@
 
 Reference this file at the start of each routine run.
 
+## Iteration 36 — 2026-06-24 (web chat: normalise untrusted history at the boundary)
+
+Routine run, task: harden for security/robustness, apply Y.A.G.N.I cleanup,
+review the whole repo, run the stress test, check into main, log follow-ups.
+Entered healthy — **222 pass, 2 skipped, ruff clean, stress test all PASS** on
+`claude/dreamy-carson-41r0u1` (the local `pytest` shim at `/root/.local/bin`
+binds a different interpreter that lacks the deps; use `python -m pytest` so it
+runs under the env that has `openpyxl`/`anthropic`). **Drive source docs
+unchanged** (both `XXEON_IT_Procurement_Guideline.docx` and `TENDER_TEMPLATE.xlsx`
+still `modifiedTime 2026-06-10T13:05:11Z`, via a `parentId` listing of the
+"Purchasing Guideline" folder) — no sample refresh (follow-up 5).
+
+**Security/robustness shipped — `/api/chat` normalises the untrusted message
+history at the boundary.** The three compressed-input guards (`.docx`, iter 30;
+LLM response, iter 32; `.xlsx`, iter 35) closed the memory-amplification class;
+this closes a **malformed-input** gap on the same untrusted boundary. The web
+endpoint passed the client-supplied `messages` list straight through (only an
+empty-check), and the retrieval backends read the query as
+`messages[-1]["content"]`. A hand-crafted POST with a non-dict item
+(`["hello"]`, `[123]`) or a dict missing `content` (`[{"role":"user"}]`) raised
+a `KeyError`/`TypeError` — and, because `_chat` sends the `200`+chunked headers
+*before* iterating the backend, the crash landed **mid-stream**, after the
+response had started (it degraded to an `[error: …]` chunk via the catch at
+`webui.py`, but never a clean status). Reproduced against the real `keyword`
+backend before fixing.
+
+New module-level `_normalize_history(raw)` in `coach/webui.py` coerces the
+history into well-formed `{role, content}` messages: non-list input → `[]`;
+non-dict items and dicts whose `content` is not a string are dropped; a missing
+or out-of-set `role` is coerced to `"user"` (so a stray role can't widen the
+conversation's trust boundary). `_chat` now calls it and returns a clean `400`
+**before** streaming when nothing usable remains. Well-formed histories pass
+through unchanged.
+
+**Why this shape (YAGNI):** the fix lives at the single point where untrusted
+data enters (the web boundary), not smeared across all five backends'
+`stream_chat` — the CLI builds its own well-formed `{role, content}` messages
+from stdin, so the backends have no other untrusted caller to defend against.
+Coercing rather than 400-ing on a *recoverable* item (bad role, extra keys)
+keeps a slightly-off-but-usable client working; only a history with **no** usable
+message is rejected. Consistent with the established "treat the localhost web API
+as an untrusted boundary" stance (DNS-rebinding iter 29; path-traversal + body
+cap, pass 4).
+
+**Y.A.G.N.I cleanup (no churn):** whole-repo `vulture coach scripts` (≥80%)
+again surfaced only the known false positive — `log_message(self, fmt, …)` in
+`webui.py`, the required `BaseHTTPRequestHandler` override whose `fmt` is unused
+by design (it silences access logging). Removing it would be churn, so it stays.
+Tree is clean from prior passes; no edits beyond the hardening.
+
+**Verification this round:** ruff clean; pytest **224 pass, 2 skipped** (+2 in
+`tests/test_webui.py`: `test_normalize_history_coerces_untrusted_input` pins the
+coercion contract, and `test_chat_rejects_malformed_history` drives malformed
+payloads over real HTTP and asserts a clean `400`); `stress_test.py` **all PASS**
+(+1 "Web chat refuses malformed history (boundary guard)" under *Web Server
+Security*, run end-to-end against the real `keyword` backend over HTTP — it would
+`KeyError`/`TypeError` unguarded — and confirms a well-formed history still
+streams a real answer). Rebuilt `dist/purchasing-coach.pyz` (341 KB) + standard
+zip (380 KB); confirmed `_normalize_history` is bundled, and **smoke-tested the
+`.pyz` end-to-end against the real XXEON `.docx`** — a scripted `/tender` run
+with the keyword backend (Cloud SaaS item, personal data) wrote a valid 24 KB
+`TENDER_CHECKLIST_*.xlsx` (174 rows) and the bundled boundary guard behaved.
+CHANGELOG Unreleased → Security updated. Checked into main; also on working
+branch `claude/dreamy-carson-41r0u1`.
+
 ## Iteration 35 — 2026-06-23 (.xlsx template: bounded against zip bombs)
 
 Routine run, task: harden for security/robustness, apply Y.A.G.N.I cleanup,

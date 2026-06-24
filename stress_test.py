@@ -357,6 +357,49 @@ def test_web_server_rejects_foreign_host():
         httpd.shutdown()
 check("Web server pins Host to loopback", test_web_server_rejects_foreign_host)
 
+def test_web_chat_refuses_malformed_history():
+    # The retrieval backends read the query as messages[-1]["content"]; a
+    # hand-crafted POST with non-dict items or no content used to crash that
+    # read after the chunked stream had started. The boundary now rejects it
+    # with a clean 400 before any backend code runs.
+    import json
+    import tempfile
+    import threading
+    import urllib.error
+    import urllib.request
+    from coach.webui import WebUI
+    from coach.backends import get_backend
+    b = get_backend("keyword")  # real backend: would KeyError/TypeError unguarded
+    ui = WebUI(Coach(guideline, b), b, "samples/guideline_text.md", None,
+               tempfile.mkdtemp())
+    httpd = ui.make_server(port=0)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    port = httpd.server_address[1]
+    try:
+        for bad in ([{"role": "user"}], ["hello"], [123], []):
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{port}/api/chat",
+                data=json.dumps({"messages": bad}).encode(),
+                headers={"Content-Type": "application/json"}, method="POST")
+            try:
+                urllib.request.urlopen(req, timeout=10)
+                raise AssertionError(f"malformed history not rejected: {bad}")
+            except urllib.error.HTTPError as exc:
+                assert exc.code == 400, f"expected 400, got {exc.code} for {bad}"
+        # A well-formed history still streams a real answer.
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{port}/api/chat",
+            data=json.dumps({"messages": [
+                {"role": "user", "content": "What about data protection?"}]}).encode(),
+            headers={"Content-Type": "application/json"}, method="POST")
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            assert resp.status == 200
+            assert resp.read().strip(), "expected a non-empty streamed answer"
+    finally:
+        httpd.shutdown()
+check("Web chat refuses malformed history (boundary guard)",
+      test_web_chat_refuses_malformed_history)
+
 # ---- Web UI rendering (ordered-list numbering) ----
 print("\n--- Web UI Rendering ---")
 

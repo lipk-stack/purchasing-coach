@@ -100,6 +100,17 @@ Production-quality hardening pass.
   archives get a clear, actionable error. This is the symmetric counterpart to
   the `.docx` guideline and LLM-response guards — the last unbounded compressed
   input is now covered.
+- **Web chat normalises the untrusted message history at the boundary.** The
+  `/api/chat` endpoint passed the client-supplied `messages` list straight to
+  the backend, which reads the query as `messages[-1]["content"]`. A
+  hand-crafted POST with a non-dict item or a message missing `content` raised a
+  `KeyError`/`TypeError` *after* the chunked `200` response had already started
+  streaming. The localhost API is treated as an untrusted boundary (the same
+  stance as the DNS-rebinding and path-traversal/body-cap defences), so the
+  history is now coerced to well-formed `{role, content}` messages — non-dict
+  and non-string-content items are dropped and an out-of-set `role` is coerced
+  to `user` — and a body with no usable message is rejected with a clean `400`
+  before streaming begins. Well-formed histories are unaffected.
 
 ### Fixed
 - **Chat answers number correctly and aren't shown twice.** Two web-UI chat

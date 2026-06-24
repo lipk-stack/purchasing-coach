@@ -46,6 +46,36 @@ MAX_BODY_BYTES = 8 * 1024 * 1024
 # a rebound request arrives with the attacker's hostname in Host and is rejected.
 _ALLOWED_HOSTS = frozenset({"127.0.0.1", "localhost", "[::1]", "::1"})
 
+# Roles the chat history may carry. Anything else is coerced to "user" so a
+# stray value can never widen the conversation's trust boundary.
+_CHAT_ROLES = frozenset({"user", "assistant", "system"})
+
+
+def _normalize_history(raw: object) -> list[dict]:
+    """Coerce an untrusted chat history into a clean ``[{role, content}]`` list.
+
+    The web API is an untrusted boundary even on loopback (a hand-crafted or
+    buggy POST can send anything), and the retrieval backends read the query as
+    ``messages[-1]["content"]`` — a raw ``KeyError``/``TypeError`` if an item is
+    not a dict or omits ``content``, raised *after* the chunked response headers
+    are already on the wire. Keeping only well-formed string-content messages
+    lets ``_chat`` reject a bad body with a clean 400 before streaming starts.
+    """
+    if not isinstance(raw, list):
+        return []
+    clean: list[dict] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        content = item.get("content")
+        if not isinstance(content, str):
+            continue
+        role = item.get("role")
+        role = role if isinstance(role, str) and role in _CHAT_ROLES else "user"
+        clean.append({"role": role, "content": content})
+    return clean
+
+
 log = logging.getLogger("coach.webui")
 
 
@@ -341,7 +371,7 @@ class _Handler(BaseHTTPRequestHandler):
 
     # -- handlers -------------------------------------------------------------
     def _chat(self, payload: dict):
-        messages = payload.get("messages") or []
+        messages = _normalize_history(payload.get("messages"))
         if not messages:
             self._json(400, {"error": "messages are required"})
             return
