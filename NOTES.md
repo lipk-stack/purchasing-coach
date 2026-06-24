@@ -2,6 +2,74 @@
 
 Reference this file at the start of each routine run.
 
+## Iteration 37 — 2026-06-24 (web tender finish: normalise untrusted answers at the boundary)
+
+Routine run, task: harden for security/robustness, apply Y.A.G.N.I cleanup,
+review the whole repo, run the stress test, check into main, log follow-ups.
+**Env note:** entered a *fresh* container with no deps installed (no system
+`openpyxl`/`pytest`; the `/root/.local/bin/pytest` shim is a uv tool without the
+project deps). Created a `.venv` and `pip install openpyxl pytest pytest-cov
+anthropic python-docx`, then ran everything under `.venv/bin/python`. Entered
+healthy once set up — **224 pass, 2 skipped, ruff clean, stress test all PASS**.
+GitHub default branch on entry was `752649c` (iter 36) via the GitHub MCP
+`list_commits` — **identical to the working-branch HEAD**; per the standing
+topology note the local `origin/main` ref is unreliable, so it's checked through
+the MCP. **Drive source docs unchanged** (both `XXEON_IT_Procurement_Guideline.docx`
+and `TENDER_TEMPLATE.xlsx` still `modifiedTime 2026-06-10T13:05:11Z`, via a
+`parentId` listing of the "Purchasing Guideline" folder) — no sample refresh
+(follow-up 5).
+
+**Security/robustness shipped — `/api/tender/finish` normalises the untrusted
+answer list at the boundary.** Iter 36 normalised the chat history; this closes
+the **sibling malformed-input gap** on the other untrusted POST boundary. The
+endpoint only checked `isinstance(answers, list)`, then `tender_finish` unpacked
+each item with `for q, a in answers`. A hand-crafted POST with a non-pair item
+(`[5]`, `["x"]`, `[[1, 2, 3]]`, `[{"q":"a"}]`) raised a `TypeError`/`ValueError`
+that — because `tender_finish` runs *inside* `do_POST`'s try/except — surfaced
+as an opaque **`500` leaking the internal exception message** (`"too many values
+to unpack (expected 2)"`), not a clean status. Reproduced against the real
+unpack before fixing.
+
+New module-level `_normalize_answers(raw)` in `coach/webui.py` coerces the list
+into well-formed `(question, answer)` string pairs: non-list input → `[]`; only
+two-element `list`/`tuple` items survive (each side `str()`-ified); everything
+else is dropped. `tender_finish` now calls it instead of the bare comprehension,
+so the checklist builds from whatever is usable and never crashes on shape.
+Well-formed answer lists (the web client always sends `[[q, a], …]`) pass
+through unchanged.
+
+**Why this shape (YAGNI):** the fix lives at the single point where untrusted
+data enters (the web boundary), reading exactly like the iter-36
+`_normalize_history` sibling — the CLI builds its own well-formed
+`(question, answer)` tuples in `run_tender_flow`, so the checklist builder has no
+other untrusted caller to defend against. Dropping malformed items rather than
+400-ing keeps a slightly-off-but-usable client working (an empty answer list is
+already legal and yields a guideline-only checklist), matching the established
+"coerce a recoverable item, reject only when nothing is usable" stance. No new
+abstraction — the two boundary normalisers stay parallel and obvious.
+
+**Y.A.G.N.I cleanup (no churn):** whole-repo `vulture coach scripts` (≥80%)
+again surfaced only the known false positive — `log_message(self, fmt, …)` in
+`webui.py`, the required `BaseHTTPRequestHandler` override whose `fmt` is unused
+by design (silences access logging). Removing it would be churn, so it stays.
+Tree is clean from prior passes; no edits beyond the hardening.
+
+**Verification this round:** ruff clean; pytest **226 pass, 2 skipped** (+2 in
+`tests/test_webui.py`: `test_normalize_answers_coerces_untrusted_input` pins the
+coercion contract incl. interleaved junk, and `test_tender_finish_tolerates_
+malformed_answers` drives a mixed valid/invalid answer list over real HTTP and
+asserts a clean `200` + a non-empty checklist file). `stress_test.py` **all
+PASS** (+1 "Web tender finish tolerates malformed answers (boundary guard)"
+under *Web Server Security*, run end-to-end against the real `keyword` backend
+over HTTP — it would `TypeError`/`ValueError` unguarded). Rebuilt
+`dist/purchasing-coach.pyz` (342 KB) + standard zip (380 KB); confirmed
+`_normalize_answers` is bundled, and **smoke-tested the `.pyz` end-to-end against
+the real XXEON `.docx`** — a scripted `/tender` run with the keyword backend
+(Cloud SaaS item, personal data) wrote a valid 26 KB `TENDER_CHECKLIST_*.xlsx`
+(174 requirements; all four sheets — Tender Information, Procurement Brief,
+Compliance Tracker, Review & Approval). CHANGELOG Unreleased → Security updated.
+Checked into main; also on working branch `claude/dreamy-carson-cverw5`.
+
 ## Iteration 36 — 2026-06-24 (web chat: normalise untrusted history at the boundary)
 
 Routine run, task: harden for security/robustness, apply Y.A.G.N.I cleanup,
@@ -269,14 +337,14 @@ working branch `claude/dreamy-carson-98yyv9`.
 
 ### Follow-ups for the next run (standing list, carried forward)
 
-1. **Canonical Drive master doc still stale.** The repo `NOTES.md` is the
-   gapless canonical log; the master Drive doc "Purchasing Coach – Notes" still
-   only logs iterations 1–2 and Drive tooling can CREATE docs but not edit that
-   one in place. Next run: create a fresh superseding master doc summarising the
-   repo's current v2.1 state (embedded GGUF backend; keyword/BM25/template
-   retrieval; accessible web UI with DNS-rebinding + docx-size + bounded-LLM-read
-   hardening; Procurement Brief sheet; Review & Approval gauge; portable .pyz +
-   standalone zip; macOS/Win/Linux launchers).
+1. **Canonical Drive master doc — ADDRESSED (iter 36); keep it current.** A
+   superseding master doc "Purchasing Coach – Master Notes (current as of iter
+   36)" (Drive id `1MgNe2fCuaTRIitJXBDCMzY74m7DdLNJTgUWhjgxvMug`) now summarises
+   the repo's current state; the original "Purchasing Coach – Notes" (iters 1–2
+   only) is left as-is because Drive tooling can create but not edit it in place.
+   The repo `NOTES.md` remains the gapless canonical log. Maintenance only: when
+   the posture/features drift materially, create a fresh "current as of iter N"
+   master doc (don't try to edit the old one).
 2. **Live LLM run still untested.** No local LLM server or API key in the build
    env, so real model output quality is unverified — only mocked and tiny-embedded
    paths are exercised. Do a real `/tender` session (one hardware + one SaaS item)

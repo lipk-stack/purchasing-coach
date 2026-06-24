@@ -400,6 +400,42 @@ def test_web_chat_refuses_malformed_history():
 check("Web chat refuses malformed history (boundary guard)",
       test_web_chat_refuses_malformed_history)
 
+def test_web_tender_finish_tolerates_malformed_answers():
+    # /api/tender/finish unpacks each answer with "for q, a in answers"; a
+    # hand-crafted POST with non-pair items (5, "x", [1,2,3]) used to raise
+    # TypeError/ValueError and surface as an opaque 500. The boundary now drops
+    # the junk, keeps the well-formed pairs, and still builds a checklist (200).
+    import json
+    import tempfile
+    import threading
+    import urllib.request
+    from coach.webui import WebUI
+    from coach.backends import get_backend
+    b = get_backend("keyword")  # real backend: would TypeError/ValueError unguarded
+    ui = WebUI(Coach(guideline, b), b, "samples/guideline_text.md", None,
+               tempfile.mkdtemp())
+    httpd = ui.make_server(port=0)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    port = httpd.server_address[1]
+    try:
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{port}/api/tender/finish",
+            data=json.dumps({
+                "item": "Cloud SaaS platform",
+                "answers": [["When is the deadline?", "Friday"], 5, ["x"],
+                            [1, 2, 3]],
+            }).encode(),
+            headers={"Content-Type": "application/json"}, method="POST")
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            assert resp.status == 200, f"expected 200, got {resp.status}"
+            result = json.loads(resp.read())
+        assert result.get("count", 0) > 0, "expected a non-empty checklist"
+        assert result.get("file", "").endswith(".xlsx"), "expected an .xlsx file"
+    finally:
+        httpd.shutdown()
+check("Web tender finish tolerates malformed answers (boundary guard)",
+      test_web_tender_finish_tolerates_malformed_answers)
+
 # ---- Web UI rendering (ordered-list numbering) ----
 print("\n--- Web UI Rendering ---")
 

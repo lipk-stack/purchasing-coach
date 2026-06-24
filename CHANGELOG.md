@@ -111,6 +111,15 @@ Production-quality hardening pass.
   and non-string-content items are dropped and an out-of-set `role` is coerced
   to `user` — and a body with no usable message is rejected with a clean `400`
   before streaming begins. Well-formed histories are unaffected.
+- **Web tender finish normalises the untrusted answer list at the boundary.**
+  The `/api/tender/finish` endpoint only checked that `answers` was a list, then
+  unpacked each item with `for q, a in answers`. A hand-crafted POST with a
+  non-pair item (`5`, `"x"`, `[1, 2, 3]`) raised a `TypeError`/`ValueError` that
+  surfaced as an opaque `500` leaking the internal message. Mirroring the chat
+  history guard, the answers are now coerced to well-formed `(question, answer)`
+  string pairs — non-pair items are dropped — so the checklist builds from
+  whatever is usable and never crashes on shape. Well-formed answer lists are
+  unaffected.
 
 ### Fixed
 - **Chat answers number correctly and aren't shown twice.** Two web-UI chat

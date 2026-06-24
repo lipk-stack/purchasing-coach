@@ -76,6 +76,27 @@ def _normalize_history(raw: object) -> list[dict]:
     return clean
 
 
+def _normalize_answers(raw: object) -> list[tuple[str, str]]:
+    """Coerce an untrusted tender-answer list into clean ``(question, answer)`` pairs.
+
+    Same untrusted boundary as the chat history: ``/api/tender/finish`` only
+    checks that ``answers`` is a list, then ``tender_finish`` unpacks each item
+    with ``for q, a in answers``. A hand-crafted or buggy POST with a non-pair
+    item (``5``, ``"x"``, ``[1, 2, 3]``) raises ``TypeError``/``ValueError``,
+    which surfaces as an opaque 500 leaking the internal message. Keeping only
+    well-formed two-element pairs (each side stringified) lets the checklist
+    build from whatever is usable and never crash on shape.
+    """
+    if not isinstance(raw, list):
+        return []
+    clean: list[tuple[str, str]] = []
+    for item in raw:
+        if isinstance(item, (list, tuple)) and len(item) == 2:
+            q, a = item
+            clean.append((str(q), str(a)))
+    return clean
+
+
 log = logging.getLogger("coach.webui")
 
 
@@ -180,7 +201,7 @@ class WebUI:
                               for q in plan.questions]}
 
     def tender_finish(self, item: str, answers: list) -> dict:
-        interview = [(str(q), str(a)) for q, a in answers]
+        interview = _normalize_answers(answers)
         checklist: TenderChecklist = self.coach.build_checklist(item, interview)
         name = output_name(checklist.tender_info.purchase_item)
         write_checklist(checklist.tender_info, checklist.requirements,

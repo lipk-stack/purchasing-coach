@@ -254,3 +254,33 @@ def test_chat_rejects_malformed_history(server):
         with pytest.raises(urllib.error.HTTPError) as err:
             _post(base + "/api/chat", {"messages": bad})
         assert err.value.code == 400
+
+
+def test_normalize_answers_coerces_untrusted_input():
+    # Well-formed two-element pairs pass through, each side stringified.
+    assert webui_mod._normalize_answers(
+        [["When due?", "Friday"], ("Dept?", 5)]
+    ) == [("When due?", "Friday"), ("Dept?", "5")]
+    # Items that would crash "for q, a in answers" are dropped instead:
+    # non-iterables, wrong-length sequences, and non-list input.
+    assert webui_mod._normalize_answers([5]) == []
+    assert webui_mod._normalize_answers(["x"]) == []
+    assert webui_mod._normalize_answers([[1, 2, 3]]) == []
+    assert webui_mod._normalize_answers([{"q": "a"}]) == []
+    assert webui_mod._normalize_answers("not a list") == []
+    # Valid pairs survive even when interleaved with junk; order is kept.
+    assert webui_mod._normalize_answers(
+        [["q1", "a1"], 5, ["q2", "a2"]]) == [("q1", "a1"), ("q2", "a2")]
+
+
+def test_tender_finish_tolerates_malformed_answers(server):
+    # A hand-crafted POST whose answers carry non-pair items used to unpack
+    # straight into TypeError/ValueError and surface as an opaque 500; the
+    # boundary now drops the junk and still builds a checklist (HTTP 200).
+    base, ui = server
+    status, result = _post(
+        base + "/api/tender/finish",
+        {"item": "Firewalls", "answers": [["When due?", "Friday"], 5, ["x"]]})
+    assert status == 200
+    assert result["count"] == len(CHECKLIST["requirements"])
+    assert (ui.out_dir / result["file"]).exists()
