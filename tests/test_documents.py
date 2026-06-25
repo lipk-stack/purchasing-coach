@@ -82,6 +82,76 @@ def test_oversize_docx_is_refused(tmp_path, monkeypatch):
         documents.load_guideline(big)
 
 
+def _fake_pypdf(monkeypatch, pages=None, raise_on_read=False):
+    """Install a fake ``pypdf`` module so the .pdf loader can be tested without
+    the optional dependency (mirrors how the suite fakes the anthropic SDK)."""
+    import sys
+    import types
+
+    class _FakePage:
+        def __init__(self, text):
+            self._text = text
+
+        def extract_text(self):
+            return self._text
+
+    class _FakeReader:
+        def __init__(self, _path):
+            if raise_on_read:
+                raise RuntimeError("not a real PDF")
+            self.pages = [_FakePage(t) for t in (pages or [])]
+
+    mod = types.ModuleType("pypdf")
+    mod.PdfReader = _FakeReader
+    monkeypatch.setitem(sys.modules, "pypdf", mod)
+
+
+def test_oversize_pdf_file_is_refused(tmp_path, monkeypatch):
+    # A .pdf whose file on disk exceeds the cap is refused fast, before pypdf is
+    # even imported (PDF analogue of the .docx/.xlsx zip-bomb guard).
+    from coach import documents
+
+    monkeypatch.setattr(documents, "_MAX_PDF_FILE_BYTES", 1000)
+    big = tmp_path / "huge.pdf"
+    big.write_bytes(b"%PDF-1.4\n" + b"0" * 2000)
+    with pytest.raises(ValueError, match="too large to process"):
+        documents.load_guideline(big)
+
+
+def test_pdf_text_bomb_is_refused(tmp_path, monkeypatch):
+    # A .pdf tiny on disk whose pages expand to a huge amount of text is refused
+    # by the bounded text-accumulation guard.
+    from coach import documents
+
+    monkeypatch.setattr(documents, "_MAX_PDF_TEXT_BYTES", 100)
+    _fake_pypdf(monkeypatch, pages=["A" * 80, "B" * 80])
+    small = tmp_path / "bomb.pdf"
+    small.write_bytes(b"%PDF-1.4\nsmall on disk")
+    with pytest.raises(ValueError, match="PDF bomb"):
+        documents.load_guideline(small)
+
+
+def test_corrupt_pdf_is_refused(tmp_path, monkeypatch):
+    from coach import documents
+
+    _fake_pypdf(monkeypatch, raise_on_read=True)
+    bad = tmp_path / "broken.pdf"
+    bad.write_bytes(b"%PDF-1.4\nnot really a pdf")
+    with pytest.raises(ValueError, match="could not be read as a PDF"):
+        documents.load_guideline(bad)
+
+
+def test_valid_pdf_loads(tmp_path, monkeypatch):
+    from coach import documents
+
+    _fake_pypdf(monkeypatch, pages=["Section 4 Contract Requirements", "page two"])
+    ok = tmp_path / "guide.pdf"
+    ok.write_bytes(b"%PDF-1.4\nok")
+    text = documents.load_guideline(ok)
+    assert "Contract Requirements" in text
+    assert "page two" in text
+
+
 def test_manual_numbered_headings_without_styles(tmp_path):
     # Headings typed as plain 'N.M Title' lines (no Word heading style) are
     # still recognised as clauses, so a user's own document produces a checklist.

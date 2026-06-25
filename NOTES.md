@@ -2,6 +2,85 @@
 
 Reference this file at the start of each routine run.
 
+## Iteration 38 — 2026-06-25 (`.pdf` loader: bound against PDF bombs — the last unguarded document loader)
+
+Routine run, task: harden for security/robustness, apply Y.A.G.N.I cleanup,
+review the whole repo, run the stress test, check into main, log follow-ups.
+**Env note:** entered a *fresh* container with no deps installed (no system
+`openpyxl`/`pytest`). Created a `.venv` and `pip install openpyxl pytest
+pytest-cov anthropic python-docx ruff`, then ran everything under
+`.venv/bin/python`. Entered healthy once set up — **226 pass, 2 skipped, ruff
+clean, stress test 33 PASS / 0 FAIL**. GitHub default branch on entry was
+`fb8fa6e` (iter 37) via the GitHub MCP `list_commits` — **identical to the
+working-branch parent**; per the standing topology note the local `origin/main`
+ref is unreliable, so it's checked through the MCP. **Drive source docs
+unchanged** (both `XXEON_IT_Procurement_Guideline.docx` and `TENDER_TEMPLATE.xlsx`
+still `modifiedTime 2026-06-10T13:05:11Z`, via a `parentId` listing of the
+"Purchasing Guideline" folder) — no sample refresh (follow-up 5).
+
+**Security/robustness shipped — the `.pdf` guideline loader is now bounded
+against PDF bombs.** This closes the **last unbounded document loader**: the
+`.docx` (iter 30), `.xlsx` template (iter 35), and buffered LLM response (iter
+32) were all already bounded against memory amplification, but `_load_pdf` in
+`coach/documents.py` handed the file straight to `pypdf.PdfReader` and joined
+`page.extract_text()` across **every page with no bound**. A `.pdf`'s page
+content streams are Flate-compressed just like the zip members of a `.docx`/
+`.xlsx`, so a file tiny on disk but with heavily compressed streams (or an
+enormous page count) could expand to a huge amount of text and exhaust memory on
+the user's machine. The loader also had **0% test coverage**.
+
+The fix mirrors the `.docx` "reject fast on declared size, then bounded read"
+idiom, adapted to PDF:
+- **`_MAX_PDF_FILE_BYTES` (64 MiB) on-disk cap** — rejected via `path.stat()`
+  *before* `pypdf` is even imported, the PDF analogue of the `.docx`
+  declared-size check.
+- **`_MAX_PDF_TEXT_BYTES` (64 MiB) bounded text accumulation** — `extract_text`
+  is accumulated page-by-page with a running total and the file is refused the
+  moment the total crosses the cap, defending against a small-on-disk document
+  whose pages expand without bound (the analogue of a zip header that
+  under-reports the true expanded size).
+- A corrupt / encrypted / non-PDF file now raises a clear, actionable
+  `ValueError` ("could not be read as a PDF …") instead of leaking a raw `pypdf`
+  traceback — the CLI already wraps `load_guideline`, so it surfaces cleanly with
+  exit code 2. Our own size/bomb `ValueError`s pass straight through the
+  `except ValueError: raise` guard so they aren't reworded.
+
+**Why this shape (YAGNI):** caps + a bounded loop, no new abstraction — it reads
+exactly like the existing `.docx` guard so the document-loader defences stay
+parallel and obvious. 64 MiB matches the `.docx` cap and is vast headroom (real
+guideline PDFs are well under a megabyte). The residual — a *single* page whose
+one compressed stream expands hugely inside one `extract_text()` call — is
+bounded by the on-disk file cap (the compressed source must fit in 64 MiB) and
+is left to `pypdf`; reimplementing per-stream decompression bounds would be
+speculative over-engineering for the single-local-user threat model. No
+XML/entity vector (PDF isn't XML). `pypdf` stays an **optional** dependency: the
+new tests fake it via `sys.modules` injection (mirroring how `test_claude.py`
+fakes the anthropic SDK and the embedded tests fake llama-cpp), so the build
+stays pure-Python and no runtime/dev dep was added.
+
+**Y.A.G.N.I cleanup (no churn):** whole-repo `vulture coach scripts` (≥80%)
+again surfaced only the known false positive — `log_message(self, fmt, …)` in
+`webui.py`, the required `BaseHTTPRequestHandler` override whose `fmt` is unused
+by design (silences access logging). Removing it would be churn, so it stays.
+Tree is clean from prior passes; no edits beyond the hardening.
+
+**Verification this round:** ruff clean; pytest **230 pass, 2 skipped** (+4 in
+`tests/test_documents.py`, taking the `.pdf` loader from 0% coverage:
+`test_oversize_pdf_file_is_refused` (on-disk cap, hit before `pypdf` import),
+`test_pdf_text_bomb_is_refused` (bounded-accumulation refusal via a faked
+`pypdf`), `test_corrupt_pdf_is_refused` (clean error on a reader that raises),
+and `test_valid_pdf_loads` (well-formed pages join through unchanged)).
+`stress_test.py` **34 PASS / 0 FAIL** (+1 "Oversize .pdf refused (PDF-bomb
+guard)" under *Document Loader Robustness*, covering both the on-disk cap with a
+real oversize file and the text-accumulation cap via an injected fake `pypdf`,
+both with shrunk caps so it stays fast). Rebuilt `dist/purchasing-coach.pyz`
+(342 KB) + standard zip (381 KB); confirmed the PDF caps + "PDF bomb" rejection
+are bundled, and **smoke-tested the `.pyz` end-to-end against the real XXEON
+`.docx`** — a scripted `/tender` run with the keyword backend (Cloud SaaS, HR)
+wrote a valid 26 KB `TENDER_CHECKLIST_*.xlsx` (174 requirements; all four
+sheets). CHANGELOG Unreleased → Security updated.
+Checked into main; also on working branch `claude/admiring-albattani-jg2hqg`.
+
 ## Iteration 37 — 2026-06-24 (web tender finish: normalise untrusted answers at the boundary)
 
 Routine run, task: harden for security/robustness, apply Y.A.G.N.I cleanup,

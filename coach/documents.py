@@ -18,6 +18,15 @@ _W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 # real guideline while still bounding the damage from a hostile or broken file.
 _MAX_DOCX_XML_BYTES = 64 * 1024 * 1024
 
+# A .pdf's page content streams are Flate-compressed too, so — like the .docx
+# and .xlsx loaders — a file tiny on disk can expand to a huge amount of text (a
+# "PDF bomb": a heavily compressed stream, or a document with an enormous page
+# count). Bound both the file we will open and the text we accumulate so a
+# hostile or broken PDF cannot exhaust memory. The caps match the .docx guard
+# (64 MiB); real guideline PDFs are well under a megabyte.
+_MAX_PDF_FILE_BYTES = 64 * 1024 * 1024
+_MAX_PDF_TEXT_BYTES = 64 * 1024 * 1024
+
 
 def load_guideline(path: str | Path) -> str:
     """Return the guideline document as plain text with headings preserved.
@@ -205,11 +214,43 @@ def _heading_level(para) -> int:
 
 
 def _load_pdf(path: Path) -> str:
+    # Fast, clear rejection for a file that is simply too large on disk — the
+    # PDF analogue of the .docx "declared size" check.
+    size = path.stat().st_size
+    if size > _MAX_PDF_FILE_BYTES:
+        raise ValueError(
+            f"'{path.name}' is too large to process: it is {size:,} bytes "
+            f"(limit {_MAX_PDF_FILE_BYTES:,}). "
+            "Check that this is a real guideline document."
+        )
     try:
         from pypdf import PdfReader
     except ImportError as exc:  # pragma: no cover
         raise ImportError(
             "PDF support requires the 'pypdf' package: pip install pypdf"
         ) from exc
-    reader = PdfReader(str(path))
-    return "\n\n".join(page.extract_text() or "" for page in reader.pages)
+    try:
+        reader = PdfReader(str(path))
+        parts: list[str] = []
+        total = 0
+        for page in reader.pages:
+            text = page.extract_text() or ""
+            total += len(text)
+            # Bounded accumulation: defends against a small-on-disk PDF whose
+            # compressed streams (or sheer page count) expand to a huge amount
+            # of text, the way the .docx loader bounds its decompressed read.
+            if total > _MAX_PDF_TEXT_BYTES:
+                raise ValueError(
+                    f"'{path.name}' expands to more than "
+                    f"{_MAX_PDF_TEXT_BYTES:,} bytes of text and was refused as a "
+                    "possible PDF bomb."
+                )
+            parts.append(text)
+    except ValueError:
+        raise  # our own size/bomb rejections pass straight through
+    except Exception as exc:
+        raise ValueError(
+            f"'{path.name}' could not be read as a PDF (it may be corrupt, "
+            "encrypted, or not a real PDF)."
+        ) from exc
+    return "\n\n".join(parts)

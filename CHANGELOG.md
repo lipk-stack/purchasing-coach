@@ -120,6 +120,19 @@ Production-quality hardening pass.
   string pairs — non-pair items are dropped — so the checklist builds from
   whatever is usable and never crashes on shape. Well-formed answer lists are
   unaffected.
+- **`.pdf` guideline loader is bounded against PDF bombs.** A `.pdf`'s page
+  content streams are Flate-compressed too, but `_load_pdf` handed the file to
+  `pypdf` and concatenated `extract_text()` across every page with **no bound** —
+  the one document loader still unguarded after the `.docx`, `.xlsx`, and
+  LLM-response defences. A PDF tiny on disk but with heavily compressed streams
+  (or an enormous page count) could expand to a huge amount of text and exhaust
+  memory. The loader now (a) refuses any file larger than a 64 MiB on-disk cap
+  before `pypdf` is even imported, and (b) accumulates extracted text with a
+  running 64 MiB cap, refusing the file the moment it crosses the limit —
+  defending against a small-on-disk document whose pages expand without bound.
+  Both caps are vast headroom for real guideline PDFs (well under a megabyte); a
+  corrupt, encrypted, or non-PDF file now gets a clear, actionable error instead
+  of an opaque traceback. This closes the **last unbounded document loader**.
 
 ### Fixed
 - **Chat answers number correctly and aren't shown twice.** Two web-UI chat

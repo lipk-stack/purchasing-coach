@@ -291,6 +291,50 @@ def test_xlsx_template_cap_refuses_bomb():
 check("Oversize .xlsx template refused (zip-bomb guard)",
       test_xlsx_template_cap_refuses_bomb)
 
+def test_pdf_cap_refuses_bomb():
+    import tempfile, types as _types
+    import coach.documents as _docs
+    # (1) A file too large on disk is rejected fast, before pypdf is imported.
+    orig_file = _docs._MAX_PDF_FILE_BYTES
+    _docs._MAX_PDF_FILE_BYTES = 1000  # shrink so the test stays fast
+    try:
+        big = tempfile.mktemp(suffix=".pdf")
+        with open(big, "wb") as f:
+            f.write(b"%PDF-1.4\n" + b"0" * 4000)
+        try:
+            _docs.load_guideline(big)
+            raise AssertionError("oversize .pdf file was not refused")
+        except ValueError as e:
+            assert "too large to process" in str(e), f"unexpected error: {e}"
+    finally:
+        _docs._MAX_PDF_FILE_BYTES = orig_file
+
+    # (2) A file tiny on disk whose pages expand past the text cap is refused as
+    # a bomb. Inject a fake pypdf so this runs without the optional dependency.
+    orig_text = _docs._MAX_PDF_TEXT_BYTES
+    _docs._MAX_PDF_TEXT_BYTES = 100
+    fake = _types.ModuleType("pypdf")
+    class _Page:
+        def __init__(self, t): self._t = t
+        def extract_text(self): return self._t
+    class _Reader:
+        def __init__(self, _p): self.pages = [_Page("A" * 80), _Page("B" * 80)]
+    fake.PdfReader = _Reader
+    sys.modules["pypdf"] = fake
+    try:
+        small = tempfile.mktemp(suffix=".pdf")
+        with open(small, "wb") as f:
+            f.write(b"%PDF-1.4\nsmall")
+        try:
+            _docs.load_guideline(small)
+            raise AssertionError("PDF text bomb was not refused")
+        except ValueError as e:
+            assert "PDF bomb" in str(e), f"unexpected error: {e}"
+    finally:
+        _docs._MAX_PDF_TEXT_BYTES = orig_text
+        del sys.modules["pypdf"]
+check("Oversize .pdf refused (PDF-bomb guard)", test_pdf_cap_refuses_bomb)
+
 def test_real_world_docx_headings_yield_clauses():
     """A user's .docx with auto-numbered or unstyled headings still parses."""
     import tempfile
