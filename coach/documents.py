@@ -111,6 +111,19 @@ def _load_docx(path: Path) -> str:
             "document). If it's a .doc, re-save it as .docx."
         ) from exc
 
+    # The byte cap above bounds the decompressed XML *source*, but an entity-
+    # expansion ("billion laughs") bomb is tiny at that level and only explodes
+    # when the parser expands its nested entities — so the cap does not defend
+    # against it. Office Open XML never declares a DOCTYPE, so any DTD here is
+    # the vehicle for such a bomb; reject it before ElementTree (and expat) can
+    # expand anything. External entities (XXE) are already safe — ElementTree
+    # raises ParseError on an undefined entity and never resolves SYSTEM ids.
+    if _declares_doctype(data):
+        raise ValueError(
+            f"'{path.name}' declares an XML DOCTYPE/entities, which a real .docx "
+            "never does, and was refused as a possible entity-expansion bomb."
+        )
+
     try:
         root = ET.fromstring(data)
     except ET.ParseError as exc:
@@ -125,6 +138,21 @@ def _load_docx(path: Path) -> str:
         if text:
             paras.append((_heading_level(para), text))
     return _render_markdown(paras)
+
+
+def _declares_doctype(data: bytes) -> bool:
+    """True if the XML prolog declares a ``<!DOCTYPE`` before the root element.
+
+    A DOCTYPE is the only way to define the custom entities used by an
+    entity-expansion bomb. We scan only the prolog so a literal ``<!DOCTYPE``
+    appearing (escaped) inside body text or a comment cannot trigger a false
+    rejection of a legitimate document.
+    """
+    i = data.find(b"<!DOCTYPE")
+    if i == -1:
+        return False
+    first_element = re.search(rb"<[A-Za-z_]", data)
+    return first_element is None or i < first_element.start()
 
 
 # A clause number at the very start of a line ("4", "4.1", "5.6.2"), but only

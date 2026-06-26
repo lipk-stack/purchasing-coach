@@ -2,6 +2,92 @@
 
 Reference this file at the start of each routine run.
 
+## Iteration 39 — 2026-06-26 (`.docx` loader: refuse XML entity-expansion "billion laughs" bombs; portable `.pyz` exit-code fix)
+
+Routine run, task: harden for security/robustness, apply Y.A.G.N.I cleanup,
+review the whole repo, run the stress test, check into main, log follow-ups.
+**Env note:** entered a *fresh* container with no deps installed. Created a
+`.venv` and `pip install openpyxl pytest pytest-cov anthropic python-docx ruff
+pypdf vulture`, then ran everything under `.venv/bin/python`. Entered healthy —
+**230 pass, 2 skipped, ruff clean, stress test 34 PASS / 0 FAIL** — matching the
+iter-38 baseline on `main` at `e4ee8a0`. **Drive source docs unchanged** (both
+`XXEON_IT_Procurement_Guideline.docx` and `TENDER_TEMPLATE.xlsx` still
+`modifiedTime 2026-06-10T13:05:11Z`, via a `parentId` listing of the "Purchasing
+Guideline" folder) — no sample refresh (follow-up).
+
+**Security/robustness shipped (1) — the `.docx` loader now refuses XML
+entity-expansion ("billion laughs") bombs.** The prior compressed-input guards
+(`.docx`/`.xlsx`/`.pdf` byte caps, bounded LLM read) all bound the *decompressed
+source* bytes — but an entity-expansion bomb is **tiny** at that level (a few
+hundred bytes of nested `<!ENTITY>` definitions) and only explodes when the XML
+parser expands the entities. I **reproduced** this on the build runtime: a
+6-level payload through `ET.fromstring` expanded to 300 KB on `expat 2.6.1`
+(a full 9-level reaches ~3 GB), so `expat`'s default amplification limits do
+*not* save us and the existing `_MAX_DOCX_XML_BYTES` cap (which reads the source
+through, well under 64 MiB) does not defend. `_load_docx` parses
+`word/document.xml` with `xml.etree.ElementTree` directly (iter-35 noted openpyxl
+is safe, but this hand-rolled ElementTree path was never assessed).
+
+The fix: a new `_declares_doctype(data)` that scans **only the XML prolog** (up
+to the first element start tag) for a `<!DOCTYPE`; `_load_docx` refuses the
+document with a clear `ValueError` before `ET.fromstring` (and `expat`) expand
+anything. Office Open XML **never** declares a DOCTYPE, so precision is perfect —
+the prolog-only scan means an escaped `<!DOCTYPE` inside body text or a comment
+can't trigger a false rejection (verified). External-entity (XXE) reads were
+already safe: ElementTree raises `ParseError` on an undefined entity and never
+resolves `SYSTEM` ids (also reproduced — `file:///etc/hostname` → `ParseError`).
+
+**Why this shape (YAGNI):** `ET.XMLParser` does not expose the underlying expat
+parser on this CPython (`.parser`/`.p` attrs absent), and expat expands DTD-
+internal entities *itself* before ElementTree's `entity` table is consulted — so
+the only reliable stdlib defence is to reject the **DTD wholesale**. A ~5-line
+prolog scan is the simplest thing that fully closes billion-laughs *and*
+quadratic-blowup *and* any future entity trick, with zero risk to real files and
+no new dependency (no `defusedxml`, no custom expat callback plumbing). It reads
+like the sibling document-loader guards.
+
+**Robustness shipped (2) — the portable `.pyz` now propagates the CLI's failure
+exit code.** Found during smoke-testing: running the standard `.pyz` against a
+bad guideline printed the clean error but **exited 0**, despite `cli.main()`
+returning `2` and `python -m coach` / the console script exiting `2` correctly.
+Cause: `zipapp.create_archive(..., main="coach.cli:main")` generates a root
+`__main__.py` that calls `main()` **bare**, discarding the return value (it also
+shadows the package's own `coach/__main__.py`, which does `sys.exit(main())`).
+So a wrapper script or CI checking `$?` on the primary distributed artifact would
+see success on a fatal error. Notes from iter 30/32/35/38 had been *claiming* the
+`.pyz` "surfaces cleanly with exit code 2" — true for the message, false for the
+code. Fix: the standard build now writes an explicit `__main__.py`
+(`sys.exit(main())`) instead of using zipapp's generated entry, mirroring what
+the embedded `_bootstrap:main` already does. Verified: bad/missing guideline →
+exit 2, clean `/quit` → exit 0.
+
+**Y.A.G.N.I cleanup (no churn):** whole-repo `vulture coach scripts` (>=80%)
+again surfaced only the known false positive — `log_message(self, fmt, ...)` in
+`webui.py`, the required `BaseHTTPRequestHandler` override whose `fmt` is unused
+by design (silences access logging). Removing it would be churn, so it stays.
+Tree is clean from prior passes; no edits beyond the two hardenings.
+
+**Verification this round:**
+- ruff clean. pytest: **232 pass** (+2: `test_entity_expansion_docx_is_refused`
+  in `test_documents.py` builds a billion-laughs `.docx` and asserts the
+  refusal; `test_portable_pyz_propagates_failure_exit_code` in `test_cli.py`
+  subprocess-runs the built `.pyz` against a missing guideline and asserts exit
+  2, skipping if not built), 2 skipped.
+- stress_test.py: **36 PASS / 0 FAIL** (+2: "Entity-expansion .docx refused
+  (billion-laughs guard)" under Document Loader Robustness; "Portable .pyz
+  propagates failure exit code" under a new Packaging section).
+- Rebuilt `dist/purchasing-coach.pyz` (343 KB) + standard zip (382 KB) via
+  `build_portable.py --zip`; confirmed `_declares_doctype` + the entity-bomb
+  message are bundled, that the rebuilt `.pyz` exits 2 on a bad guideline and 0
+  on clean exit, and smoke-tested end-to-end against the real XXEON `.docx`: a
+  scripted `/tender` run with the keyword backend (Cloud SaaS HR, personal data)
+  wrote a valid 26 KB `TENDER_CHECKLIST_*.xlsx` (174 requirements; all four
+  sheets — Tender Information, Procurement Brief, Compliance Tracker, Review &
+  Approval), and a crafted billion-laughs `.docx` was refused cleanly (exit 2,
+  no traceback) through the bundled path.
+- CHANGELOG Unreleased → Security (entity-expansion guard) + Fixed (`.pyz` exit
+  code) updated.
+
 ## Iteration 38 — 2026-06-25 (`.pdf` loader: bound against PDF bombs — the last unguarded document loader)
 
 Routine run, task: harden for security/robustness, apply Y.A.G.N.I cleanup,

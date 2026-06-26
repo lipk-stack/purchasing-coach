@@ -133,8 +133,26 @@ Production-quality hardening pass.
   Both caps are vast headroom for real guideline PDFs (well under a megabyte); a
   corrupt, encrypted, or non-PDF file now gets a clear, actionable error instead
   of an opaque traceback. This closes the **last unbounded document loader**.
+- **`.docx` loader refuses XML entity-expansion ("billion laughs") bombs.** The
+  byte cap above bounds the decompressed XML *source*, but an entity-expansion
+  bomb is tiny at that level and only explodes when the parser expands its
+  nested entities — confirmed still vulnerable on a current `expat` (2.6.1), so
+  the existing cap did not defend against it. Office Open XML never declares a
+  `<!DOCTYPE`, so the loader now refuses any `word/document.xml` that declares
+  one (scanning only the prolog, so an escaped `<!DOCTYPE` in body text can't
+  cause a false rejection) — stopping the bomb before ElementTree/`expat` expand
+  anything. External-entity (XXE) reads were already safe (ElementTree raises on
+  an undefined entity and never resolves `SYSTEM` ids). Legitimate documents are
+  unaffected.
 
 ### Fixed
+- **Portable `.pyz` now propagates the CLI's failure exit code.** The standard
+  zipapp's generated entry point called `main()` bare and discarded its return
+  value, so the `.pyz` exited `0` even when the CLI failed (e.g. a missing or
+  unreadable guideline returns `2`) — masking the error from any wrapper script
+  or CI that checks `$?`. The build now writes an explicit `__main__.py` that
+  does `sys.exit(main())`, mirroring the embedded bootstrap entry, so a fatal
+  error surfaces as a non-zero exit. Successful runs still exit `0`.
 - **Chat answers number correctly and aren't shown twice.** Two web-UI chat
   rendering bugs: (1) a numbered answer whose items were separated by sub-bullet
   groups rendered *every* top-level item as "1." — each sub-list closed and

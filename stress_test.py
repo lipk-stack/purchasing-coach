@@ -263,6 +263,32 @@ def test_docx_size_cap_refuses_bomb():
         _docs._MAX_DOCX_XML_BYTES = orig
 check("Oversize .docx refused (zip-bomb guard)", test_docx_size_cap_refuses_bomb)
 
+def test_docx_entity_expansion_refused():
+    # A "billion laughs" .docx is tiny on disk and tiny decompressed (so the
+    # byte cap does not catch it), but its entities expand to gigabytes inside
+    # the XML parser. The DOCTYPE must be refused before any expansion.
+    import tempfile, zipfile as _zip
+    import coach.documents as _docs
+    bomb_xml = (
+        '<?xml version="1.0"?>\n<!DOCTYPE w:document [\n'
+        ' <!ENTITY a "aaaaaaaaaa">\n'
+        ' <!ENTITY b "&a;&a;&a;&a;&a;&a;&a;&a;&a;&a;">\n'
+        ' <!ENTITY c "&b;&b;&b;&b;&b;&b;&b;&b;&b;&b;">\n]>\n'
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/'
+        'wordprocessingml/2006/main"><w:body><w:p><w:t>&c;</w:t>'
+        "</w:p></w:body></w:document>"
+    )
+    path = tempfile.mktemp(suffix=".docx")
+    with _zip.ZipFile(path, "w", _zip.ZIP_DEFLATED) as zf:
+        zf.writestr("word/document.xml", bomb_xml)
+    try:
+        _docs.load_guideline(path)
+        raise AssertionError("entity-expansion .docx was not refused")
+    except ValueError as e:
+        assert "entity-expansion bomb" in str(e), f"unexpected error: {e}"
+check("Entity-expansion .docx refused (billion-laughs guard)",
+      test_docx_entity_expansion_refused)
+
 def test_xlsx_template_cap_refuses_bomb():
     import tempfile, zipfile as _zip
     import coach.excel as _excel
@@ -733,6 +759,27 @@ def test_embedded_is_auto_default_when_available():
         EmbeddedBackend.has_cached_model = orig_cached
         _sys.modules.pop("llama_cpp", None)
 check("Embedded is the auto default backend", test_embedded_is_auto_default_when_available)
+
+# ---- Packaging / portable .pyz ----
+print("\n--- Packaging ---")
+
+def test_pyz_propagates_failure_exit_code():
+    # The portable .pyz must exit non-zero on a fatal CLI error (e.g. a missing
+    # guideline → 2). zipapp's default entry calls main() bare and exits 0; the
+    # build writes an explicit __main__.py that propagates the code instead.
+    import os.path as _osp
+    import subprocess as _sp
+    pyz = _osp.join(_osp.dirname(__file__), "dist", "purchasing-coach.pyz")
+    if not _osp.exists(pyz):
+        print("    (skipped — portable pyz not built)")
+        return
+    r = _sp.run(
+        [sys.executable, pyz, "--guideline", "/nonexistent/guideline.docx",
+         "--backend", "keyword"],
+        stdin=_sp.DEVNULL, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL, timeout=60,
+    )
+    assert r.returncode == 2, f"expected exit 2, got {r.returncode}"
+check("Portable .pyz propagates failure exit code", test_pyz_propagates_failure_exit_code)
 
 # ---- Summary ----
 print("\n" + "=" * 60)

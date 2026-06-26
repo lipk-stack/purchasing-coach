@@ -116,8 +116,16 @@ def build(with_model: bool = False) -> Path:
         zipapp.create_archive(BUILD, target, main="_bootstrap:main",
                               compressed=True)
     else:
-        zipapp.create_archive(BUILD, target, main="coach.cli:main",
-                              compressed=True)
+        # Write an explicit __main__.py rather than letting zipapp generate one
+        # from ``main="coach.cli:main"``: the generated entry calls ``main()``
+        # bare and discards its return value, so the .pyz would exit 0 even when
+        # the CLI returns a non-zero failure code (e.g. a bad guideline → 2),
+        # masking the error from any wrapper script or CI that checks $?. This
+        # propagates the code, mirroring the embedded _bootstrap entry.
+        (BUILD / "__main__.py").write_text(
+            "import sys\n\nfrom coach.cli import main\n\nsys.exit(main())\n"
+        )
+        zipapp.create_archive(BUILD, target, compressed=True)
     return target
 
 

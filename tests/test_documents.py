@@ -82,6 +82,28 @@ def test_oversize_docx_is_refused(tmp_path, monkeypatch):
         documents.load_guideline(big)
 
 
+def test_entity_expansion_docx_is_refused(tmp_path):
+    # A "billion laughs" .docx is tiny on disk and tiny when decompressed (so
+    # the byte cap above does not catch it), but its nested entities expand to
+    # gigabytes inside the XML parser. The DOCTYPE is refused before expansion.
+    bomb_xml = (
+        '<?xml version="1.0"?>\n'
+        "<!DOCTYPE w:document [\n"
+        ' <!ENTITY lol "lol">\n'
+        ' <!ENTITY lol1 "&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;">\n'
+        ' <!ENTITY lol2 "&lol1;&lol1;&lol1;&lol1;&lol1;&lol1;&lol1;&lol1;">\n'
+        "]>\n"
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/'
+        'wordprocessingml/2006/main">'
+        "<w:body><w:p><w:t>&lol2;</w:t></w:p></w:body></w:document>"
+    )
+    bomb = tmp_path / "bomb.docx"
+    with zipfile.ZipFile(bomb, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("word/document.xml", bomb_xml)
+    with pytest.raises(ValueError, match="entity-expansion bomb"):
+        load_guideline(bomb)
+
+
 def _fake_pypdf(monkeypatch, pages=None, raise_on_read=False):
     """Install a fake ``pypdf`` module so the .pdf loader can be tested without
     the optional dependency (mirrors how the suite fakes the anthropic SDK)."""
