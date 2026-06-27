@@ -11,6 +11,7 @@ from coach.excel import (
     REVIEW_DECISION_OPTIONS,
     REVIEW_SHEET,
     VENDOR_STATUS_OPTIONS,
+    sanitize_cell,
     write_checklist,
 )
 from coach.models import RequirementRow, TenderInfo
@@ -351,3 +352,68 @@ def test_brief_sheet_idempotent_on_rerun(samples, tmp_path):
     write_checklist(INFO, ROWS, path, path, interview=INTERVIEW)
     wb = load_workbook(path)
     assert wb.sheetnames.count(BRIEF_SHEET) == 1
+
+
+# --- Formula-injection neutralisation (CWE-1236) -----------------------------
+
+def test_sanitize_cell_neutralises_formula_triggers():
+    # Strings opening with a formula trigger get an apostrophe prefix; benign
+    # values (and non-strings) pass through untouched.
+    for bad in ("=1+2", '=HYPERLINK("http://evil","x")', "+1", "-1", "@cmd",
+                "\tx", "\rx"):
+        assert sanitize_cell(bad) == "'" + bad
+    for ok in ("5.3", "Enforce MFA.", "MYR 250,000", "", "M"):
+        assert sanitize_cell(ok) == ok
+    assert sanitize_cell(7) == 7
+    assert sanitize_cell(None) is None
+
+
+def test_injected_cells_are_text_not_formulas(samples, tmp_path):
+    # A guideline clause / tender answer / item description that opens with "="
+    # must land as inert text in the deliverable, never as a live formula.
+    evil_info = TenderInfo(
+        issue_date="2026-06-10", submission_deadline="2026-07-10",
+        purchase_item='=HYPERLINK("http://evil","Click")',
+        issued_by="IT Procurement", requesting_dept="Infra",
+        tender_reference="XXEON-IT-2026-099", procurement_type="Tender",
+        estimated_value="MYR 1", purchase_category="Cloud Services",
+    )
+    evil_rows = [
+        RequirementRow(ref="5.3", section="Access",
+                       requirement="=cmd|'/c calc'!A1", mandatory="M"),
+    ]
+    evil_interview = [("Any special terms?", "=1+2")]
+    out = write_checklist(evil_info, evil_rows, tmp_path / "evil.xlsx",
+                          samples["template"], interview=evil_interview)
+    wb = load_workbook(out)
+
+    # No data-derived cell anywhere in the workbook is a live formula, except
+    # the Review sheet's own built-in summary formulas.
+    for ws in wb.worksheets:
+        for row in ws.iter_rows():
+            for cell in row:
+                if cell.data_type == "f" and ws.title != REVIEW_SHEET:
+                    raise AssertionError(
+                        f"formula cell leaked into {ws.title}!{cell.coordinate}: "
+                        f"{cell.value!r}")
+
+    # The injected values survive as readable text (apostrophe-prefixed).
+    tracker = wb["Compliance Tracker"]
+    blob = " | ".join(str(c.value) for r in tracker.iter_rows()
+                      for c in r if c.value)
+    assert "=cmd|'/c calc'!A1" in blob
+    brief = wb[BRIEF_SHEET]
+    bblob = " | ".join(str(c.value) for r in brief.iter_rows()
+                       for c in r if c.value)
+    assert "=1+2" in bblob
+
+
+def test_review_formulas_stay_live_after_sanitisation(samples, tmp_path):
+    # Regression guard: sanitising data cells must not touch the Review sheet's
+    # intentional COUNTIF/IFERROR formulas — they must remain live.
+    out = write_checklist(INFO, ROWS, tmp_path / "live.xlsx", samples["template"])
+    wb = load_workbook(out)
+    ws = wb[REVIEW_SHEET]
+    formula_cells = [c for row in ws.iter_rows() for c in row
+                     if c.data_type == "f"]
+    assert any(str(c.value).startswith("=COUNTIF") for c in formula_cells)

@@ -284,3 +284,23 @@ def test_tender_finish_tolerates_malformed_answers(server):
     assert status == 200
     assert result["count"] == len(CHECKLIST["requirements"])
     assert (ui.out_dir / result["file"]).exists()
+
+
+def test_csv_export_neutralises_formula_injection(server):
+    # The CSV export is opened in Excel, which evaluates a field beginning with
+    # = + - @ as a formula. A checklist row carrying such text must be emitted
+    # as inert (apostrophe-prefixed) text, not a live formula.
+    from coach.models import RequirementRow
+    _, ui = server
+    ui._last_checklist = [
+        RequirementRow(ref="5.3", section="Access",
+                       requirement='=HYPERLINK("http://evil","x")', mandatory="M"),
+        RequirementRow(ref="9.1", section="Pricing",
+                       requirement="-1+payload", mandatory="O"),
+    ]
+    csv_text = ui.export_csv()
+    # The dangerous fields are apostrophe-guarded so Excel won't evaluate them.
+    assert "'=HYPERLINK" in csv_text
+    assert "'-1+payload" in csv_text
+    # Benign fields are untouched.
+    assert "5.3" in csv_text and "Access" in csv_text

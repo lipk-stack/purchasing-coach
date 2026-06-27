@@ -50,6 +50,35 @@ VENDOR_STATUS_OPTIONS = [
     "Not Applicable",
 ]
 
+# Spreadsheet formula injection (CWE-1236). The generated checklist is the
+# deliverable submitted to vendors and opened by reviewers/approvers, and its
+# data-derived cells carry text we don't control: guideline clauses (which may
+# come from a vendor-supplied document), the buyer's tender answers, and the
+# item description. openpyxl turns any string beginning with ``=`` into a *live
+# formula*, so a clause like ``=HYPERLINK("http://evil","click me")`` — or a DDE
+# payload such as ``=cmd|'/c calc'!A1`` — would execute in the reader's Excel. A
+# leading ``+``, ``-`` or ``@`` (and a leading tab/CR) is a formula trigger too
+# once the sheet is exported to CSV. We neutralise such cells at the single write
+# boundary by prefixing an apostrophe — Excel's "treat the cell as text" marker —
+# so they render literally and never evaluate. This is the OWASP-recommended
+# mitigation; non-string and benign values pass straight through. The Review
+# sheet's own COUNTIF/IFERROR cells are built-in constants written separately and
+# are deliberately *not* routed through here, so they stay live.
+_FORMULA_TRIGGERS = ("=", "+", "-", "@", "\t", "\r")
+
+
+def sanitize_cell(value):
+    """Neutralise spreadsheet formula injection in an untrusted cell value.
+
+    Returns ``value`` unchanged unless it is a string whose first character
+    would make Excel/LibreOffice (or a CSV import) treat the cell as a formula,
+    in which case it is prefixed with an apostrophe so the text is shown
+    literally and never evaluated.
+    """
+    if isinstance(value, str) and value[:1] in _FORMULA_TRIGGERS:
+        return "'" + value
+    return value
+
 
 def write_checklist(
     tender_info: TenderInfo,
@@ -94,7 +123,7 @@ def _fill_info_sheet(wb, tender_info: TenderInfo) -> None:
             label = str(cell.value).strip() if cell.value else ""
             if label in values:
                 target = ws.cell(row=cell.row, column=cell.column + 1)
-                target.value = values[label]
+                target.value = sanitize_cell(values[label])
                 target.alignment = Alignment(vertical="top", wrap_text=True)
                 found.add(label)
     # Labels missing from the template are appended at the bottom.
@@ -102,7 +131,7 @@ def _fill_info_sheet(wb, tender_info: TenderInfo) -> None:
         if label not in found:
             row = ws.max_row + 1
             ws.cell(row=row, column=1, value=label).font = Font(bold=True)
-            ws.cell(row=row, column=2, value=values[label])
+            ws.cell(row=row, column=2, value=sanitize_cell(values[label]))
 
 
 def _fill_tracker_sheet(wb, requirements: list[RequirementRow]):
@@ -123,7 +152,8 @@ def _fill_tracker_sheet(wb, requirements: list[RequirementRow]):
         }
         for header, value in entries.items():
             if header in col:
-                cell = ws.cell(row=row, column=col[header], value=value)
+                cell = ws.cell(row=row, column=col[header],
+                               value=sanitize_cell(value))
                 cell.alignment = Alignment(vertical="top", wrap_text=True)
         row += 1
 
@@ -337,7 +367,7 @@ def _add_brief_sheet(
         ("Purchase Category", tender_info.purchase_category),
     ):
         ws.cell(row=row, column=1, value=label).font = label_font
-        ws.cell(row=row, column=2, value=value).alignment = wrap_top
+        ws.cell(row=row, column=2, value=sanitize_cell(value)).alignment = wrap_top
         row += 1
 
     row += 1
@@ -353,8 +383,10 @@ def _add_brief_sheet(
 
     for i, (question, answer) in enumerate(interview, start=1):
         ws.cell(row=row, column=1, value=i).alignment = wrap_top
-        ws.cell(row=row, column=2, value=str(question)).alignment = wrap_top
-        ws.cell(row=row, column=3, value=str(answer)).alignment = wrap_top
+        ws.cell(row=row, column=2,
+                value=sanitize_cell(str(question))).alignment = wrap_top
+        ws.cell(row=row, column=3,
+                value=sanitize_cell(str(answer))).alignment = wrap_top
         row += 1
 
     ws.column_dimensions["A"].width = 5

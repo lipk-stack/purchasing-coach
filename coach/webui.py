@@ -21,7 +21,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from . import __version__
-from .excel import write_checklist
+from .excel import sanitize_cell, write_checklist
 from .guideline import guideline_notice
 from .llm import Coach
 from .models import (
@@ -234,7 +234,10 @@ class WebUI:
         w = csv.writer(buf)
         w.writerow(["Ref", "Section", "Requirement", "M/O"])
         for r in self._last_checklist:
-            w.writerow([r.ref, r.section, r.requirement, r.mandatory])
+            # Neutralise formula injection: the CSV is opened in Excel, which
+            # evaluates a field beginning with = + - @ as a formula.
+            w.writerow([sanitize_cell(r.ref), sanitize_cell(r.section),
+                        sanitize_cell(r.requirement), sanitize_cell(r.mandatory)])
         return buf.getvalue()
 
     def export_json(self) -> list[dict]:

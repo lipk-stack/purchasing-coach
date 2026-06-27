@@ -506,6 +506,51 @@ def test_web_tender_finish_tolerates_malformed_answers():
 check("Web tender finish tolerates malformed answers (boundary guard)",
       test_web_tender_finish_tolerates_malformed_answers)
 
+# ---- Checklist output security (formula injection / CWE-1236) ----
+print("\n--- Checklist Output Security ---")
+
+def test_checklist_formula_injection_neutralised():
+    """A guideline clause / tender answer that opens with a formula trigger must
+    land as inert text in the generated workbook, never as a live formula that
+    runs when a reviewer/approver opens the deliverable."""
+    import tempfile
+    from pathlib import Path as _Path
+    from openpyxl import load_workbook as _load
+    from coach.excel import write_checklist, REVIEW_SHEET, sanitize_cell
+    from coach.models import RequirementRow, TenderInfo
+
+    # Unit contract: triggers guarded, benign text untouched.
+    assert sanitize_cell('=HYPERLINK("http://x","y")') == '\'=HYPERLINK("http://x","y")'
+    assert sanitize_cell("Enforce MFA.") == "Enforce MFA."
+
+    info = TenderInfo(
+        issue_date="2026-06-10", submission_deadline="2026-07-10",
+        purchase_item='=cmd|\'/c calc\'!A1', issued_by="IT", requesting_dept="Infra",
+        tender_reference="X-1", procurement_type="Tender", estimated_value="MYR 1",
+        purchase_category="Cloud Services")
+    rows = [RequirementRow(ref="5.3", section="Access",
+                           requirement='=1+2', mandatory="M")]
+    interview = [("Special terms?", "@SUM(1)")]
+    with tempfile.TemporaryDirectory() as d:
+        out = write_checklist(info, rows, _Path(d) / "evil.xlsx",
+                              None, interview=interview)
+        wb = _load(out)
+        # No data sheet carries a live formula; only the Review sheet's own
+        # built-in summary formulas are allowed to be live.
+        for ws in wb.worksheets:
+            if ws.title == REVIEW_SHEET:
+                continue
+            for row in ws.iter_rows():
+                for cell in row:
+                    assert cell.data_type != "f", \
+                        f"formula leaked into {ws.title}!{cell.coordinate}"
+        # The Review sheet keeps its intentional COUNTIF formulas live.
+        review = wb[REVIEW_SHEET]
+        assert any(c.data_type == "f" and str(c.value).startswith("=COUNTIF")
+                   for r in review.iter_rows() for c in r)
+check("Checklist neutralises formula injection (CWE-1236)",
+      test_checklist_formula_injection_neutralised)
+
 # ---- Web UI rendering (ordered-list numbering) ----
 print("\n--- Web UI Rendering ---")
 

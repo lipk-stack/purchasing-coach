@@ -64,6 +64,21 @@ Production-quality hardening pass.
   commodity buy is not asked for a Software BOM.
 
 ### Security
+- **Generated checklist neutralises spreadsheet formula injection (CWE-1236).**
+  The `TENDER_CHECKLIST_*.xlsx` is the deliverable submitted to vendors and
+  opened by reviewers/approvers, and its data-derived cells carry text the app
+  does not control — guideline clauses (which may come from a vendor-supplied
+  document), the buyer's tender answers, and the item description. `openpyxl`
+  turns any string beginning with `=` into a *live formula*, so a clause like
+  `=HYPERLINK("http://evil","click me")` or a DDE payload would execute when the
+  reader opens the workbook; a leading `+`, `-`, `@` (or tab/CR) is a trigger too
+  once the sheet is exported to CSV. Every untrusted cell — across the Tender
+  Information, Compliance Tracker and Procurement Brief sheets, and the
+  `/api/export/csv` download — is now neutralised at the write boundary with an
+  apostrophe prefix (Excel's "treat as text" marker), so such values render
+  literally and never evaluate. The Review & Approval sheet's own built-in
+  `COUNTIF`/`IFERROR` summary cells are written separately and stay live;
+  benign content is unchanged.
 - **Web UI pins the `Host` header to loopback (DNS-rebinding defence).** The
   local server already binds to `127.0.0.1`, but a malicious page open in the
   user's browser could still reach it by rebinding an attacker-controlled

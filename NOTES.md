@@ -2,6 +2,89 @@
 
 Reference this file at the start of each routine run.
 
+## Iteration 40 — 2026-06-27 (checklist output: neutralise spreadsheet formula injection / CWE-1236)
+
+Routine run, task: harden for security/robustness, apply Y.A.G.N.I cleanup,
+review the whole repo, run the stress test, check into main, log follow-ups.
+**Env note:** entered a *fresh* container with no deps installed. Created a
+`.venv` and `pip install openpyxl pytest pytest-cov anthropic python-docx ruff
+pypdf vulture`, then ran everything under `.venv/bin/python`. Entered healthy —
+**232 pass, 2 skipped, ruff clean, stress test 37 PASS / 0 FAIL** (one extra
+PASS line is a section header artifact; real cases all green) — matching the
+iter-39 baseline on `main` at `da6a358`. **Drive source docs unchanged** (both
+`XXEON_IT_Procurement_Guideline.docx` and `TENDER_TEMPLATE.xlsx` still
+`modifiedTime 2026-06-10T13:05:11Z`, via a `parentId` listing of the "Purchasing
+Guideline" folder) — no sample refresh (follow-up 5).
+
+**Security/robustness shipped — the generated checklist now neutralises
+spreadsheet formula injection (CWE-1236 / OWASP "CSV injection").** Every prior
+hardening pass has defended the *input* side (zip/PDF/entity bombs on the loaded
+guideline/template, bounded LLM reads, web-boundary normalisers). This closes the
+matching gap on the **output** side — the `TENDER_CHECKLIST_*.xlsx` is the
+*deliverable* that gets submitted to vendors and opened by reviewers/approvers,
+and it carries text the app does not control: guideline clauses (which can come
+from a vendor-supplied document), the buyer's tender answers, and the item
+description. **Reproduced on the build runtime:** `openpyxl` stores any string
+beginning with `=` as a *live formula* (`data_type == "f"`), so an item
+description / clause / answer like `=HYPERLINK("http://evil","Click")` or a DDE
+payload `=cmd|'/c calc'!A1` lands as an executable formula in the reader's Excel.
+A leading `+`, `-`, `@` (or tab/CR) is a formula trigger too once the sheet is
+exported via `/api/export/csv` and reopened in Excel.
+
+The fix: a new module-level `sanitize_cell(value)` in `coach/excel.py` prefixes
+an apostrophe — Excel's "treat the cell as text" marker — to any string opening
+with a trigger char (`= + - @ \t \r`); non-string and benign values pass through
+untouched. It is applied at the single write boundary to *every data-derived
+cell*: `_fill_info_sheet` (Tender Information), `_fill_tracker_sheet`
+(Ref/Section/Requirement on the Compliance Tracker), and `_add_brief_sheet`
+(purchase context + the interview Q&A on the Procurement Brief). The web CSV
+export (`webui.export_csv`) routes its four columns through the same helper.
+
+**Why this shape (YAGNI):** one tiny helper, the OWASP-recommended apostrophe
+mitigation, applied at the one place untrusted data becomes a cell — it reads
+like the sibling boundary guards (`_normalize_history`/`_normalize_answers`) and
+covers both the `.xlsx` and the CSV with the same function, no new dependency.
+Crucially, the Review & Approval sheet's own `COUNTIF`/`COUNTIFS`/`IFERROR`
+summary cells are built-in constants written *separately* and are deliberately
+**not** routed through the sanitiser, so they stay live — a regression test pins
+this. The apostrophe is the standard, accepted trade-off; the only realistic
+false positive (a requirement bullet that genuinely starts with `-`) gains an
+invisible-in-Excel leading apostrophe rather than silently becoming a formula.
+(Considered openpyxl's `quotePrefix` style flag for an apostrophe-free render,
+but verified it does **not** help: openpyxl still emits the `=`-string as `<f>`,
+which Excel evaluates regardless of `quotePrefix` — so preventing the formula at
+the value boundary is the only reliable stdlib defence, and the apostrophe also
+covers the CSV path where `quotePrefix` is meaningless.)
+
+**Y.A.G.N.I cleanup (no churn):** whole-repo `vulture coach scripts` (>=80%)
+again surfaced only the known false positive — `log_message(self, fmt, ...)` in
+`webui.py`, the required `BaseHTTPRequestHandler` override whose `fmt` is unused
+by design (silences access logging). Removing it would be churn, so it stays.
+Tree is clean from prior passes; no edits beyond the one hardening.
+
+**Verification this round:**
+- ruff clean (configured `ruff check .`; `stress_test.py` is intentionally
+  excluded). pytest: **236 pass** (+4: `test_sanitize_cell_neutralises_formula_triggers`
+  pins the helper contract; `test_injected_cells_are_text_not_formulas` writes a
+  payload through Tender Info + Tracker + Brief and asserts *no* data cell is a
+  formula while the values survive as readable text; `test_review_formulas_stay_live_after_sanitisation`
+  is the regression guard that the Review sheet's COUNTIF cells remain live;
+  `test_csv_export_neutralises_formula_injection` covers the CSV download), 2
+  skipped.
+- stress_test.py: **all PASS / 0 FAIL** (+1 "Checklist neutralises formula
+  injection (CWE-1236)" under a new *Checklist Output Security* section — writes a
+  multi-trigger payload through the full `write_checklist` and asserts no data
+  sheet carries a live formula while the Review sheet keeps its COUNTIF cells).
+- Rebuilt `dist/purchasing-coach.pyz` (343 KB) + standard zip (382 KB) via
+  `build_portable.py --zip`; confirmed `sanitize_cell`/`_FORMULA_TRIGGERS` are
+  bundled, imported the package straight from the `.pyz` and verified an injected
+  `=HYPERLINK`/`=cmd|...` payload produces **zero** live formula cells in the data
+  sheets, and ran the full real-guideline pipeline (keyword backend, real XXEON
+  `.docx`, injected `=HYPERLINK` item description): a valid **26 KB**,
+  **174-requirement** `TENDER_CHECKLIST_*.xlsx` with all four sheets, no leaked
+  formulas, and the Review sheet's 8 live summary formulas intact.
+- CHANGELOG Unreleased → Security updated (formula-injection neutralisation).
+
 ## Iteration 39 — 2026-06-26 (`.docx` loader: refuse XML entity-expansion "billion laughs" bombs; portable `.pyz` exit-code fix)
 
 Routine run, task: harden for security/robustness, apply Y.A.G.N.I cleanup,
