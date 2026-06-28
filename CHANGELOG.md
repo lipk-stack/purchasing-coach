@@ -79,6 +79,17 @@ Production-quality hardening pass.
   literally and never evaluate. The Review & Approval sheet's own built-in
   `COUNTIF`/`IFERROR` summary cells are written separately and stay live;
   benign content is unchanged.
+- **Generated checklist no longer aborts on XML-illegal control characters in
+  untrusted text.** The same data-derived cells can carry C0 control bytes — a
+  PDF page break extracts as form-feed `\x0c`, and vertical tabs, NUL and other
+  control codes appear in copied/OCR'd guideline text. XML 1.0 (and therefore
+  the `.xlsx` format) forbids these, so a single such byte in a clause, tender
+  answer or item description made `openpyxl` raise `IllegalCharacterError` at
+  write time and abort the *whole* checklist — i.e. no deliverable at all. The
+  write-boundary sanitiser now strips XML-illegal control characters (reusing
+  `openpyxl`'s own canonical regex, so it matches exactly what `openpyxl` would
+  reject), keeping legal whitespace (`\t`/`\n`/`\r`); stripping runs before the
+  formula-trigger check so a leading control byte cannot hide a formula trigger.
 - **Web UI pins the `Host` header to loopback (DNS-rebinding defence).** The
   local server already binds to `127.0.0.1`, but a malicious page open in the
   user's browser could still reach it by rebinding an attacker-controlled

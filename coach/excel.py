@@ -4,6 +4,7 @@ import zipfile
 from pathlib import Path
 
 from openpyxl import Workbook, load_workbook
+from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.formatting.rule import CellIsRule, DataBarRule
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
@@ -66,16 +67,34 @@ VENDOR_STATUS_OPTIONS = [
 # are deliberately *not* routed through here, so they stay live.
 _FORMULA_TRIGGERS = ("=", "+", "-", "@", "\t", "\r")
 
+# The same untrusted text can also carry characters that XML 1.0 — and therefore
+# the .xlsx format — forbids: the C0 control codes except tab/newline/CR. These
+# are routine in real guideline sources (a PDF page break extracts as form-feed
+# ``\x0c``; vertical tabs, NUL and other control bytes appear in copied/OCR'd
+# text), so a single such byte in a clause, tender answer or item description
+# would make openpyxl raise ``IllegalCharacterError`` at write time and abort the
+# whole checklist — i.e. no deliverable at all. We strip them at the same write
+# boundary, reusing openpyxl's own canonical regex so we always match exactly
+# what it would reject (no drift). ``\t``/``\n``/``\r`` are XML-legal and survive.
+_strip_illegal = ILLEGAL_CHARACTERS_RE.sub
+
 
 def sanitize_cell(value):
-    """Neutralise spreadsheet formula injection in an untrusted cell value.
+    """Sanitise an untrusted cell value for safe, lossless .xlsx/CSV output.
 
-    Returns ``value`` unchanged unless it is a string whose first character
-    would make Excel/LibreOffice (or a CSV import) treat the cell as a formula,
-    in which case it is prefixed with an apostrophe so the text is shown
-    literally and never evaluated.
+    For string values this (1) removes XML-illegal control characters that would
+    otherwise make openpyxl raise ``IllegalCharacterError`` and crash the write,
+    and (2) prefixes an apostrophe — Excel's "treat the cell as text" marker — to
+    any value still beginning with a formula trigger so it renders literally and
+    never evaluates (spreadsheet formula injection, CWE-1236). Control-char
+    stripping happens first, so a leading control byte cannot hide a formula
+    trigger from the apostrophe guard. Non-string and benign values pass through
+    unchanged.
     """
-    if isinstance(value, str) and value[:1] in _FORMULA_TRIGGERS:
+    if not isinstance(value, str):
+        return value
+    value = _strip_illegal("", value)
+    if value[:1] in _FORMULA_TRIGGERS:
         return "'" + value
     return value
 

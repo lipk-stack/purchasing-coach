@@ -2,6 +2,86 @@
 
 Reference this file at the start of each routine run.
 
+## Iteration 41 — 2026-06-28 (checklist output: strip XML-illegal control chars / `IllegalCharacterError` crash)
+
+Routine run, task: harden for security/robustness, apply Y.A.G.N.I cleanup,
+review the whole repo, run the stress test, check into main, log follow-ups.
+**Env note:** entered a *fresh* container with no deps installed. Created a
+`.venv` and `pip install openpyxl pytest pytest-cov anthropic python-docx ruff
+pypdf vulture`, then ran everything under `.venv/bin/python`. Entered healthy —
+**236 pass, 2 skipped, ruff clean, stress test 37 PASS / 0 FAIL** — matching the
+iter-40 baseline on `main` at `33bd69c`. **Drive source docs unchanged** (both
+`XXEON_IT_Procurement_Guideline.docx` and `TENDER_TEMPLATE.xlsx` still
+`modifiedTime 2026-06-10T13:05:11Z`, via a `parentId` listing of the "Purchasing
+Guideline" folder) — no sample refresh (follow-up 5).
+
+**Robustness shipped — the generated checklist no longer crashes on XML-illegal
+control characters in untrusted text.** This is the *robustness* twin of iter
+40's formula-injection guard, at the exact same write boundary. iter 40 closed
+the *malicious* output gap (a `=`-string becoming a live formula); this closes a
+*crash* gap on the same cells. **Reproduced on the build runtime:** XML 1.0 (and
+therefore the `.xlsx`/Office Open XML format) forbids the C0 control codes except
+tab/newline/CR, and `openpyxl` enforces this — writing a string containing
+`\x0c` (form-feed), `\x0b` (vtab), `\x00` (NUL) or any `\x01–\x08`/`\x0e–\x1f`
+byte raises `IllegalCharacterError`. These bytes are **routine** in real
+guideline sources: a PDF page break extracts as form-feed `\x0c` (the iter-38
+`.pdf` loader is live), and copied/OCR'd `.docx` text carries assorted control
+codes. So a single such byte in a clause / tender answer / item description made
+`write_checklist` raise mid-write and produce **no deliverable at all** — a
+robustness DoS on the output the whole tool exists to generate. The prior
+`sanitize_cell` (iter 40) passed these straight through (it only guarded leading
+formula triggers).
+
+The fix extends the single write-boundary helper `sanitize_cell` in
+`coach/excel.py`: for string values it now first strips XML-illegal control
+characters, **then** applies the apostrophe formula-trigger guard. Stripping
+reuses `openpyxl`'s own `ILLEGAL_CHARACTERS_RE` (imported from
+`openpyxl.cell.cell`) so we match *exactly* what `openpyxl` would reject — no
+drift if `openpyxl` ever changes the set. Order matters and is tested: stripping
+before the trigger check means a value like `\x00=cmd|'/c calc'!A1` is reduced to
+`=cmd…` and then still gets the apostrophe, so a leading control byte cannot hide
+a formula trigger. Legal whitespace (`\t`/`\n`/`\r`) survives untouched (a value
+that *starts* with `\t`/`\r` still gets the apostrophe, unchanged from iter 40).
+Because every data-derived cell across the Tender Information, Compliance
+Tracker and Procurement Brief sheets — and the `/api/export/csv` download —
+already routes through this one helper, the fix covers them all at once. The
+Review & Approval sheet's `COUNTIF`/`IFERROR` cells are written separately and
+are untouched (still live).
+
+**Why this shape (YAGNI):** one extra line in the existing boundary helper +
+one import, reusing the library's own constant — no new dependency, no new
+module, no second pass over the data. It reads like the formula-injection guard
+it sits beside. Considered instead replacing control chars with a visible
+placeholder (e.g. space) — rejected as YAGNI/lossy guesswork; stripping is what
+makes the cell *valid*, and the surrounding text is preserved, so the clause
+stays readable. Considered guarding at each loader (`.docx`/`.pdf`) instead —
+rejected: the bug is fundamentally about what `.xlsx` accepts, so the single
+output boundary is the correct, DRY place (covers CSV too, and any future input
+source for free).
+
+**Y.A.G.N.I cleanup (no churn):** whole-repo `vulture coach scripts` (>=80%)
+again surfaced only the known false positive — `log_message(self, fmt, ...)` in
+`webui.py`, the required `BaseHTTPRequestHandler` override whose `fmt` is unused
+by design (silences access logging). Removing it would be churn, so it stays.
+Tree is clean from prior passes; no edits beyond the one hardening.
+
+**Verification this round:**
+- ruff clean (`stress_test.py` intentionally excluded). pytest: **238 pass**
+  (+2: `test_sanitize_cell_strips_xml_illegal_control_chars` pins the
+  strip-then-trigger contract incl. the leading-control-byte-hides-a-formula
+  case and legal-whitespace survival; `test_control_char_cells_do_not_crash_write_checklist`
+  drives a form-feed/vtab/SOH payload through Tender Info + Tracker + Brief and
+  asserts the workbook round-trips and the stripped text survives), 2 skipped.
+- stress_test.py: **39 PASS / 0 FAIL** (+1 "Checklist survives XML-illegal
+  control chars (no IllegalCharacterError)" under the existing *Checklist Output
+  Security* section).
+- Rebuilt `dist/purchasing-coach.pyz` (344 KB) + standard zip (383 KB) via
+  `build_portable.py --zip`; imported the package straight from the `.pyz` and
+  verified a combined `\x0c=HYPERLINK(...)` payload through the full
+  `write_checklist` produces a valid workbook with **zero** leaked data formulas
+  and **no** `IllegalCharacterError`, Review-sheet summary formulas intact.
+- CHANGELOG Unreleased → Security updated (control-character stripping).
+
 ## Iteration 40 — 2026-06-27 (checklist output: neutralise spreadsheet formula injection / CWE-1236)
 
 Routine run, task: harden for security/robustness, apply Y.A.G.N.I cleanup,

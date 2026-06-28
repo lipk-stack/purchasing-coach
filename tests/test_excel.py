@@ -417,3 +417,39 @@ def test_review_formulas_stay_live_after_sanitisation(samples, tmp_path):
     formula_cells = [c for row in ws.iter_rows() for c in row
                      if c.data_type == "f"]
     assert any(str(c.value).startswith("=COUNTIF") for c in formula_cells)
+
+
+# --- XML-illegal control-character stripping ---------------------------------
+
+def test_sanitize_cell_strips_xml_illegal_control_chars():
+    # C0 control codes other than tab/newline/CR are forbidden in .xlsx (XML 1.0)
+    # and openpyxl rejects them; they must be stripped, while legal whitespace
+    # survives. A leading control byte must not hide a formula trigger.
+    assert sanitize_cell("comply\x0cwith") == "complywith"          # form-feed
+    assert sanitize_cell("a\x0bb\x01c\x00d") == "abcd"               # vtab/SOH/NUL
+    assert sanitize_cell("keep\ttab\nand\rcr") == "keep\ttab\nand\rcr"
+    assert sanitize_cell("\x00=cmd|'/c calc'!A1") == "'=cmd|'/c calc'!A1"
+
+
+def test_control_char_cells_do_not_crash_write_checklist(samples, tmp_path):
+    # Real PDF/DOCX guideline text routinely carries control bytes (page breaks
+    # extract as form-feed). Such a value in a clause / answer / item must not
+    # raise IllegalCharacterError and abort the whole deliverable.
+    info = TenderInfo(
+        issue_date="2026-06-10", submission_deadline="2026-07-10",
+        purchase_item="Laptops\x0cfleet refresh",
+        issued_by="IT Procurement", requesting_dept="Infra",
+        tender_reference="XXEON-IT-2026-100", procurement_type="Tender",
+        estimated_value="MYR 1", purchase_category="Hardware",
+    )
+    rows = [RequirementRow(ref="5.3", section="Access",
+                           requirement="Enforce MFA\x0bon\x01all logins",
+                           mandatory="M")]
+    interview = [("Any special terms?", "Net-30\x0cpayment")]
+    out = write_checklist(info, rows, tmp_path / "ctrl.xlsx",
+                          samples["template"], interview=interview)
+    wb = load_workbook(out)  # round-trips cleanly → openpyxl accepted every cell
+    tracker = wb["Compliance Tracker"]
+    blob = " | ".join(str(c.value) for r in tracker.iter_rows()
+                      for c in r if c.value)
+    assert "Enforce MFAonall logins" in blob

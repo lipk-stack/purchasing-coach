@@ -551,6 +551,44 @@ def test_checklist_formula_injection_neutralised():
 check("Checklist neutralises formula injection (CWE-1236)",
       test_checklist_formula_injection_neutralised)
 
+def test_checklist_survives_xml_illegal_control_chars():
+    """Real PDF/DOCX guideline text routinely carries control bytes (a page
+    break extracts as form-feed). Such a byte in a clause / answer / item must
+    not make openpyxl raise IllegalCharacterError and abort the whole checklist —
+    it must be stripped so a valid deliverable is still produced."""
+    import tempfile
+    from pathlib import Path as _Path
+    from openpyxl import load_workbook as _load
+    from coach.excel import write_checklist, sanitize_cell
+    from coach.models import RequirementRow, TenderInfo
+
+    # Unit contract: illegal control chars stripped, legal whitespace kept, and a
+    # leading control byte can't hide a formula trigger from the apostrophe guard.
+    assert sanitize_cell("a\x0cb\x0bc\x01d\x00e") == "abcde"
+    assert sanitize_cell("keep\ttab\nand\rcr") == "keep\ttab\nand\rcr"
+    assert sanitize_cell("\x00=1+2") == "'=1+2"
+
+    info = TenderInfo(
+        issue_date="2026-06-10", submission_deadline="2026-07-10",
+        purchase_item="Laptops\x0cfleet refresh", issued_by="IT",
+        requesting_dept="Infra", tender_reference="X-2",
+        procurement_type="Tender", estimated_value="MYR 1",
+        purchase_category="Hardware")
+    rows = [RequirementRow(ref="5.3", section="Access",
+                           requirement="Enforce MFA\x0bon\x01all logins",
+                           mandatory="M")]
+    interview = [("Special terms?", "Net-30\x0cpayment")]
+    with tempfile.TemporaryDirectory() as d:
+        out = write_checklist(info, rows, _Path(d) / "ctrl.xlsx",
+                              None, interview=interview)
+        wb = _load(out)  # round-trips → openpyxl accepted every written cell
+        tracker = wb["Compliance Tracker"]
+        blob = " | ".join(str(c.value) for r in tracker.iter_rows()
+                          for c in r if c.value)
+        assert "Enforce MFAonall logins" in blob
+check("Checklist survives XML-illegal control chars (no IllegalCharacterError)",
+      test_checklist_survives_xml_illegal_control_chars)
+
 # ---- Web UI rendering (ordered-list numbering) ----
 print("\n--- Web UI Rendering ---")
 
